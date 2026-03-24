@@ -1,0 +1,57 @@
+{
+  "app": {
+    "id": "code",
+    "name": "Code",
+    "brandTagline": "Ship faster with secure sign-in."
+  },
+  "oauth": {
+    "envPrefix": "CODE"
+  },
+  "allowedOrigins": [
+    "http://localhost:2048",
+    "http://127.0.0.1:2048"
+  ],
+  "redirects": {
+    "postLoginPath": "/",
+    "postLogoutPath": "/"
+  },
+  "credentials": {
+    "enabled": true
+  },
+  "docs": [
+    {
+      "product": "code",
+      "docType": "terms",
+      "key": "code:terms",
+      "version": "1",
+      "label": "Code Terms of Use",
+      "url": "https://example.com/code/terms",
+      "required": true
+    },
+    {
+      "product": "code",
+      "docType": "privacy",
+      "key": "code:privacy",
+      "version": "1",
+      "label": "Code Privacy Policy",
+      "url": "https://example.com/code/privacy",
+      "required": true
+    }
+  ],
+  "turnstile": {
+    "required": false,
+    "enabled": false
+  },
+  "providers": [
+    {
+      "provider": "google",
+      "label": "Continue with Google",
+      "enabled": true
+    },
+    {
+      "provider": "github",
+      "label": "Continue with GitHub",
+      "enabled": true
+    }
+  ]
+}
