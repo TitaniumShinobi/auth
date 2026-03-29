@@ -3,9 +3,11 @@ import crypto from 'node:crypto';
 import type {
   ConsentAcceptance,
   CreateCredentialUserInput,
+  ProviderAccount,
   StoredUser,
   StorageAdapter,
   UpsertOAuthUserInput,
+  UpsertProviderAccountConnectionInput,
 } from '../types.js';
 import { execSql, querySql, sqlString } from './sqliteCli.js';
 
@@ -27,6 +29,23 @@ type SqlUserRow = {
   supabase_user_id?: string | null;
 };
 
+type SqlProviderAccountRow = {
+  id: string;
+  user_id: string;
+  provider: string;
+  provider_user_id: string;
+  email: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  profile_json: string;
+  access_token_encrypted?: string | null;
+  access_token_scope?: string | null;
+  connected_at?: string | null;
+  connection_updated_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 function mapUser(row: SqlUserRow): StoredUser {
   return {
     id: row.id,
@@ -43,6 +62,25 @@ function mapUser(row: SqlUserRow): StoredUser {
   };
 }
 
+function mapProviderAccount(row: SqlProviderAccountRow): ProviderAccount {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    provider: row.provider,
+    providerUserId: row.provider_user_id,
+    email: row.email,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    profileJson: row.profile_json,
+    accessTokenEncrypted: row.access_token_encrypted ?? null,
+    accessTokenScope: row.access_token_scope ?? null,
+    connectedAt: row.connected_at ?? null,
+    connectionUpdatedAt: row.connection_updated_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function ensureUserLifeColumns(dbPath: string) {
   try {
     const cols = querySql<{ name: string }>(dbPath, 'PRAGMA table_info(users);');
@@ -52,6 +90,27 @@ function ensureUserLifeColumns(dbPath: string) {
     }
     if (!names.has('supabase_user_id')) {
       execSql(dbPath, 'ALTER TABLE users ADD COLUMN supabase_user_id TEXT;');
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function ensureProviderAccountConnectionColumns(dbPath: string) {
+  try {
+    const cols = querySql<{ name: string }>(dbPath, 'PRAGMA table_info(provider_accounts);');
+    const names = new Set(cols.map((row) => row.name));
+    if (!names.has('access_token_encrypted')) {
+      execSql(dbPath, 'ALTER TABLE provider_accounts ADD COLUMN access_token_encrypted TEXT;');
+    }
+    if (!names.has('access_token_scope')) {
+      execSql(dbPath, 'ALTER TABLE provider_accounts ADD COLUMN access_token_scope TEXT;');
+    }
+    if (!names.has('connected_at')) {
+      execSql(dbPath, 'ALTER TABLE provider_accounts ADD COLUMN connected_at TEXT;');
+    }
+    if (!names.has('connection_updated_at')) {
+      execSql(dbPath, 'ALTER TABLE provider_accounts ADD COLUMN connection_updated_at TEXT;');
     }
   } catch {
     // ignore
@@ -86,6 +145,10 @@ export class SqliteStorageAdapter implements StorageAdapter {
         display_name TEXT,
         avatar_url TEXT,
         profile_json TEXT NOT NULL,
+        access_token_encrypted TEXT,
+        access_token_scope TEXT,
+        connected_at TEXT,
+        connection_updated_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         UNIQUE(provider, provider_user_id)
@@ -103,6 +166,7 @@ export class SqliteStorageAdapter implements StorageAdapter {
       `,
     );
     ensureUserLifeColumns(this.dbPath);
+    ensureProviderAccountConnectionColumns(this.dbPath);
   }
 
   async findUserByEmail(email: string) {
@@ -119,6 +183,21 @@ export class SqliteStorageAdapter implements StorageAdapter {
       `SELECT * FROM users WHERE id = ${sqlString(id)} LIMIT 1;`,
     );
     return rows[0] ? mapUser(rows[0]) : null;
+  }
+
+  async findProviderAccount(userId: string, provider: string) {
+    const rows = querySql<SqlProviderAccountRow>(
+      this.dbPath,
+      `
+      SELECT *
+      FROM provider_accounts
+      WHERE user_id = ${sqlString(userId)}
+        AND provider = ${sqlString(provider)}
+      ORDER BY updated_at DESC
+      LIMIT 1;
+      `,
+    );
+    return rows[0] ? mapProviderAccount(rows[0]) : null;
   }
 
   async createCredentialUser(input: CreateCredentialUserInput) {
@@ -232,7 +311,8 @@ export class SqliteStorageAdapter implements StorageAdapter {
       this.dbPath,
       `
       INSERT INTO provider_accounts (
-        id, user_id, provider, provider_user_id, email, display_name, avatar_url, profile_json, created_at, updated_at
+        id, user_id, provider, provider_user_id, email, display_name, avatar_url, profile_json,
+        access_token_encrypted, access_token_scope, connected_at, connection_updated_at, created_at, updated_at
       ) VALUES (
         ${sqlString(createId('acct'))},
         ${sqlString(user.id)},
@@ -242,6 +322,10 @@ export class SqliteStorageAdapter implements StorageAdapter {
         ${sqlString(input.displayName)},
         ${sqlString(input.avatarUrl || null)},
         ${sqlString(JSON.stringify(input.profile))},
+        NULL,
+        NULL,
+        NULL,
+        NULL,
         ${sqlString(now)},
         ${sqlString(now)}
       )
@@ -256,6 +340,87 @@ export class SqliteStorageAdapter implements StorageAdapter {
     );
 
     return (await this.findUserById(user.id)) as StoredUser;
+  }
+
+  async upsertProviderAccountConnection(input: UpsertProviderAccountConnectionInput) {
+    const now = new Date().toISOString();
+    const connectedAt = input.connectedAt ?? now;
+    const existingByUser = await this.findProviderAccount(input.userId, input.provider);
+    const existingByProviderUser = querySql<SqlProviderAccountRow>(
+      this.dbPath,
+      `
+      SELECT *
+      FROM provider_accounts
+      WHERE provider = ${sqlString(input.provider)}
+        AND provider_user_id = ${sqlString(input.providerUserId)}
+      ORDER BY updated_at DESC
+      LIMIT 1;
+      `,
+    )[0];
+
+    if (existingByUser && existingByProviderUser && existingByUser.id !== existingByProviderUser.id) {
+      execSql(
+        this.dbPath,
+        `DELETE FROM provider_accounts WHERE id = ${sqlString(existingByProviderUser.id)};`,
+      );
+    }
+
+    const targetId = existingByUser?.id || existingByProviderUser?.id || createId('acct');
+    const source = existingByUser ?? (existingByProviderUser ? mapProviderAccount(existingByProviderUser) : null);
+    execSql(
+      this.dbPath,
+      `
+      INSERT INTO provider_accounts (
+        id, user_id, provider, provider_user_id, email, display_name, avatar_url, profile_json,
+        access_token_encrypted, access_token_scope, connected_at, connection_updated_at, created_at, updated_at
+      ) VALUES (
+        ${sqlString(targetId)},
+        ${sqlString(input.userId)},
+        ${sqlString(input.provider)},
+        ${sqlString(input.providerUserId)},
+        ${sqlString(input.email ?? source?.email ?? null)},
+        ${sqlString(input.displayName ?? source?.displayName ?? null)},
+        ${sqlString(input.avatarUrl ?? source?.avatarUrl ?? null)},
+        ${sqlString(JSON.stringify(input.profile))},
+        ${sqlString(input.accessTokenEncrypted)},
+        ${sqlString(input.accessTokenScope ?? null)},
+        ${sqlString(connectedAt)},
+        ${sqlString(now)},
+        ${sqlString(source?.createdAt ?? now)},
+        ${sqlString(now)}
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        user_id = excluded.user_id,
+        provider = excluded.provider,
+        provider_user_id = excluded.provider_user_id,
+        email = excluded.email,
+        display_name = excluded.display_name,
+        avatar_url = excluded.avatar_url,
+        profile_json = excluded.profile_json,
+        access_token_encrypted = excluded.access_token_encrypted,
+        access_token_scope = excluded.access_token_scope,
+        connected_at = excluded.connected_at,
+        connection_updated_at = excluded.connection_updated_at,
+        updated_at = excluded.updated_at;
+      `,
+    );
+    return (await this.findProviderAccount(input.userId, input.provider)) as ProviderAccount;
+  }
+
+  async clearProviderAccountConnection(userId: string, provider: string) {
+    execSql(
+      this.dbPath,
+      `
+      UPDATE provider_accounts
+      SET access_token_encrypted = NULL,
+          access_token_scope = NULL,
+          connected_at = NULL,
+          connection_updated_at = NULL,
+          updated_at = ${sqlString(new Date().toISOString())}
+      WHERE user_id = ${sqlString(userId)}
+        AND provider = ${sqlString(provider)};
+      `,
+    );
   }
 
   async replaceConsentAcceptances(userId: string, appId: string, docs: ConsentAcceptance[]) {

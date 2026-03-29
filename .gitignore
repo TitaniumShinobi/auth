@@ -1,7 +1,11 @@
 node_modules/
 dist/
+
+# Environment (secrets) — ignore all variants; allow optional committed template
 .env
-.env.*.local
+.env.*
+!.env.example
+
 .DS_Store
 *.log
 data/*.sqlite

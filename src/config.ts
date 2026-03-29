@@ -18,7 +18,7 @@ export function resolveConfigPath() {
 }
 
 export function getPort() {
-  return Number.parseInt(process.env.AUTH_PORT || '2040', 10);
+  return Number.parseInt(process.env.AUTH_PORT || '1111', 10);
 }
 
 export function getDbPath() {
@@ -27,6 +27,10 @@ export function getDbPath() {
 
 export function getSessionSecret() {
   return process.env.AUTH_SESSION_SECRET || 'dev-auth-session-secret-change-me';
+}
+
+export function getProviderTokenSecret() {
+  return process.env.AUTH_PROVIDER_TOKEN_SECRET || getSessionSecret();
 }
 
 export function getCookieName() {

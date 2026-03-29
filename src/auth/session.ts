@@ -26,6 +26,9 @@ export function verifySessionToken(token: string, secret: string): SessionPayloa
   const [encodedPayload, providedSignature] = token.split('.');
   if (!encodedPayload || !providedSignature) return null;
   const expectedSignature = crypto.createHmac('sha256', secret).update(encodedPayload).digest('base64url');
+  if (providedSignature.length !== expectedSignature.length) {
+    return null;
+  }
   if (!crypto.timingSafeEqual(Buffer.from(providedSignature), Buffer.from(expectedSignature))) {
     return null;
   }

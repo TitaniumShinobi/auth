@@ -89,6 +89,10 @@ export type ProviderAccount = {
   displayName: string | null;
   avatarUrl: string | null;
   profileJson: string;
+  accessTokenEncrypted: string | null;
+  accessTokenScope: string | null;
+  connectedAt: string | null;
+  connectionUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -114,6 +118,19 @@ export type UpsertOAuthUserInput = {
   displayName: string;
   avatarUrl?: string | null;
   profile: Record<string, unknown>;
+};
+
+export type UpsertProviderAccountConnectionInput = {
+  userId: string;
+  provider: string;
+  providerUserId: string;
+  email?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  profile: Record<string, unknown>;
+  accessTokenEncrypted: string;
+  accessTokenScope?: string | null;
+  connectedAt?: string | null;
 };
 
 export type ProviderProfile = {
@@ -147,9 +164,12 @@ export type StorageAdapter = {
   initialize: () => Promise<void>;
   findUserByEmail: (email: string) => Promise<StoredUser | null>;
   findUserById: (id: string) => Promise<StoredUser | null>;
+  findProviderAccount: (userId: string, provider: string) => Promise<ProviderAccount | null>;
   createCredentialUser: (input: CreateCredentialUserInput) => Promise<StoredUser>;
   updateUserLogin: (userId: string) => Promise<void>;
   upsertOAuthUser: (input: UpsertOAuthUserInput) => Promise<StoredUser>;
+  upsertProviderAccountConnection: (input: UpsertProviderAccountConnectionInput) => Promise<ProviderAccount>;
+  clearProviderAccountConnection: (userId: string, provider: string) => Promise<void>;
   replaceConsentAcceptances: (userId: string, appId: string, docs: ConsentAcceptance[]) => Promise<void>;
   hasAcceptedConsentKeys: (userId: string, appId: string, requiredKeys: string[]) => Promise<boolean>;
   updateUserLifeAnchors: (

@@ -1,0 +1,57 @@
+{
+  "app": {
+    "id": "vvault",
+    "name": "VVAULT",
+    "brandTagline": "Secure your constructs. Remember forever."
+  },
+  "oauth": {
+    "envPrefix": "VVAULT"
+  },
+  "allowedOrigins": [
+    "http://localhost:7784",
+    "http://127.0.0.1:7784"
+  ],
+  "redirects": {
+    "postLoginPath": "/",
+    "postLogoutPath": "/"
+  },
+  "credentials": {
+    "enabled": true
+  },
+  "docs": [
+    {
+      "product": "vvault",
+      "docType": "terms",
+      "key": "vvault:terms",
+      "version": "1",
+      "label": "VVAULT Terms of Use",
+      "url": "http://localhost:7784/assets/legal/vvault-terms.html",
+      "required": true
+    },
+    {
+      "product": "vvault",
+      "docType": "privacy",
+      "key": "vvault:privacy",
+      "version": "1",
+      "label": "VVAULT Privacy Notice",
+      "url": "http://localhost:7784/assets/legal/vvault-privacy.html",
+      "required": true
+    }
+  ],
+  "turnstile": {
+    "required": false,
+    "enabled": false
+  },
+  "providers": [
+    {
+      "provider": "google",
+      "label": "Continue with Google",
+      "enabled": true
+    },
+    {
+      "provider": "github",
+      "label": "Continue with GitHub",
+      "enabled": true
+    }
+  ]
+}

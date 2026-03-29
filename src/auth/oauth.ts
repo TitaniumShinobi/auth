@@ -14,6 +14,7 @@ type OAuthStateRecord = {
   callbackUrl: string;
   provider: string;
   createdAt: number;
+  mode: 'identity_login' | 'repo_connect';
 };
 
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -21,9 +22,20 @@ const STATE_TTL_MS = 10 * 60 * 1000;
 export class OAuthStateStore {
   private readonly pending = new Map<string, OAuthStateRecord>();
 
-  issue(provider: string, origin: string, callbackUrl: string) {
+  issue(
+    provider: string,
+    origin: string,
+    callbackUrl: string,
+    options: { mode?: 'identity_login' | 'repo_connect' } = {},
+  ) {
     const state = crypto.randomBytes(18).toString('base64url');
-    this.pending.set(state, { provider, origin, callbackUrl, createdAt: Date.now() });
+    this.pending.set(state, {
+      provider,
+      origin,
+      callbackUrl,
+      createdAt: Date.now(),
+      mode: options.mode ?? 'identity_login',
+    });
     return state;
   }
 
