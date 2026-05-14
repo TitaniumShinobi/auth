@@ -1254,6 +1254,8 @@ function renderHostedAuthPage({
         const confirmField = qs('confirm-field');
         const turnstileWidget = qs('turnstile-widget');
         const emailInput = qs('email-input');
+        const passwordField = qs('password-input').closest('div');
+        const emailField = emailInput.closest('div');
         const nameInput = qs('name-input');
         const modeLogin = qs('mode-login');
         const modeSignup = qs('mode-signup');
@@ -1313,16 +1315,16 @@ function renderHostedAuthPage({
           modeSignup.classList.toggle('active', mode === 'signup');
           nameField.classList.toggle('hidden', mode !== 'signup' || consentOnly);
           confirmField.classList.toggle('hidden', mode !== 'signup' || consentOnly);
+          emailField.classList.toggle('hidden', consentOnly);
+          passwordField.classList.toggle('hidden', consentOnly);
           emailInput.disabled = consentOnly;
+          submitButton.textContent = consentOnly ? 'Complete Consent' : (mode === 'signup' ? 'Create Account' : 'Sign In');
           if (consentOnly && boot.sessionUser) {
             emailInput.value = boot.sessionUser.email || '';
             if (nameInput) nameInput.value = boot.sessionUser.name || '';
-            submitButton.textContent = 'Complete Consent';
             if (messageBox.classList.contains('hidden')) {
               messageBox.classList.remove('hidden');
             }
-          } else {
-            submitButton.textContent = mode === 'signup' ? 'Create Account' : 'Sign In';
           }
           renderLegalDocs();
           renderTurnstile();
