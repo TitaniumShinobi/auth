@@ -181,16 +181,16 @@ test('starts OAuth, completes callback, and sets a session cookie', async () => 
       const authUrl = new URL(location);
       const state = authUrl.searchParams.get('state');
       assert.ok(state);
-      assert.equal(authUrl.searchParams.get('redirect_uri'), 'http://localhost:2048/api/auth/google/callback');
+      assert.equal(authUrl.searchParams.get('redirect_uri'), `${baseUrl}/api/auth/google/callback`);
 
       const callback = await fetch(`${baseUrl}/api/auth/google/callback?code=test-code&state=${encodeURIComponent(state)}`, {
         headers: { Origin: 'http://localhost:2048' },
         redirect: 'manual',
       });
       assert.equal(callback.status, 302);
-      assert.equal(callback.headers.get('location'), 'http://localhost:2048/');
+      assert.match(callback.headers.get('location') || '', /^http:\/\/localhost:2048\/api\/auth\/set-session\?code=/);
       const setCookie = (callback.headers as any).getSetCookie?.()[0] || callback.headers.get('set-cookie');
-      assert.ok(setCookie);
+      assert.equal(setCookie, null);
     });
   } finally {
     for (const [key, value] of Object.entries(original)) {

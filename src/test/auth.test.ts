@@ -858,6 +858,19 @@ test('returns dynamic auth config and provider availability', async () => {
   });
 });
 
+test('serves a hosted auth page from the auth origin', async () => {
+  await withServer({}, async ({ baseUrl }) => {
+    const response = await fetch(`${baseUrl}/?origin=http%3A%2F%2Flocalhost%3A2048&mode=signup`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') || '', /text\/html/);
+    const html = await response.text();
+    assert.match(html, /Code/);
+    assert.match(html, /Create Account/);
+    assert.match(html, /Code Terms/);
+    assert.match(html, /api\/auth\/register/);
+  });
+});
+
 test('enforces turnstile when required', async () => {
   await withServer({
     config: {
@@ -976,8 +989,46 @@ test('redirects OAuth callback to signup when product consent is missing', async
       },
     );
     assert.equal(callback.status, 302);
-    assert.equal(callback.headers.get('location'), 'http://localhost:2048/?authModal=signup&reason=missing_consent');
+    assert.equal(
+      callback.headers.get('location'),
+      `${baseUrl}/?mode=signup&reason=missing_consent&origin=${encodeURIComponent('http://localhost:2048')}`,
+    );
     const setCookie = (callback.headers as any).getSetCookie?.()[0] || callback.headers.get('set-cookie');
-    assert.equal(setCookie, null);
+    assert.match(setCookie || '', /auth_sid=/);
+  });
+});
+
+test('records consent for an authenticated session through the hosted auth surface', async () => {
+  await withServer({}, async ({ baseUrl }) => {
+    const register = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://localhost:2048',
+      },
+      body: JSON.stringify({
+        name: 'Devon',
+        email: 'consent@example.com',
+        password: 'secret123',
+        confirmPassword: 'secret123',
+        consent: { 'code:terms': true },
+      }),
+    });
+    assert.equal(register.status, 201);
+    const setCookie = (register.headers as any).getSetCookie?.()[0] || register.headers.get('set-cookie');
+    assert.ok(setCookie);
+
+    const consent = await fetch(`${baseUrl}/api/auth/consent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: setCookie.split(';')[0],
+      },
+      body: JSON.stringify({ consent: { 'code:terms': true } }),
+    });
+    assert.equal(consent.status, 200);
+    const payload = await consent.json() as { ok: boolean; user?: { email: string } };
+    assert.equal(payload.ok, true);
+    assert.equal(payload.user?.email, 'consent@example.com');
   });
 });

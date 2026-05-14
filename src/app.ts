@@ -113,6 +113,25 @@ function resolveRequestOrigin(req: any, config: AuthAppConfig) {
   return config.allowedOrigins[0] || normalizedHostOrigin;
 }
 
+function resolveConsumerOrigin(req: any, config: AuthAppConfig) {
+  const queryOrigin =
+    req?.query && typeof req.query.origin === 'string'
+      ? trimTrailingSlash(req.query.origin)
+      : '';
+  if (queryOrigin && config.allowedOrigins.includes(queryOrigin)) {
+    return queryOrigin;
+  }
+  return resolveRequestOrigin(req, config);
+}
+
+function resolveHostedOrigin(req: any) {
+  const protoHeader = typeof req.get === 'function' ? req.get('x-forwarded-proto') : undefined;
+  const forwardedProto = protoHeader ? String(protoHeader).split(',')[0].trim() : '';
+  const proto = forwardedProto || (req.secure ? 'https' : 'http');
+  const host = typeof req.get === 'function' ? req.get('host') : undefined;
+  return trimTrailingSlash(host ? `${proto}://${host}` : getPublicOriginFallback());
+}
+
 function getClientIp(req: any) {
   const forwarded = typeof req.get === 'function' ? req.get('x-forwarded-for') : '';
   return forwarded?.split(',')[0]?.trim() || req.socket?.remoteAddress || null;
@@ -141,7 +160,7 @@ function readAuthSession(
 function resolveCallbackUrl(req: any, config: AuthAppConfig, providerId: string) {
   const explicitCallback = resolveProviderCredentials(providerId, config).callbackUrl;
   if (explicitCallback) return explicitCallback;
-  const origin = resolveRequestOrigin(req, config);
+  const origin = resolveHostedOrigin(req);
   return `${origin}/api/auth/${providerId}/callback`;
 }
 
@@ -1025,6 +1044,392 @@ function resolveProviderClients(config: AuthAppConfig, overrides?: Record<string
   };
 }
 
+function buildProviderStatuses(
+  config: AuthAppConfig,
+  providers: Record<string, OAuthProviderClient>,
+): AuthProviderConfig[] {
+  return config.providers.map((provider) => {
+    const client = providers[provider.provider];
+    const available = provider.enabled && Boolean(client?.isConfigured());
+    return {
+      provider: provider.provider,
+      label: provider.label,
+      enabled: provider.enabled,
+      available,
+      reason: available ? undefined : client ? 'Provider is not configured' : 'Provider is not implemented',
+    };
+  });
+}
+
+function escapeHtml(value: string) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderHostedAuthPage({
+  config,
+  providerStatuses,
+  selectedOrigin,
+  hostedOrigin,
+  sessionUser,
+  mode,
+  reason,
+  error,
+}: {
+  config: AuthAppConfig;
+  providerStatuses: AuthProviderConfig[];
+  selectedOrigin: string;
+  hostedOrigin: string;
+  sessionUser: SessionUser | null;
+  mode: 'login' | 'signup';
+  reason: string | null;
+  error: string | null;
+}) {
+  const bootstrap = JSON.stringify({
+    app: config.app,
+    docs: config.docs,
+    turnstile: config.turnstile,
+    providers: providerStatuses,
+    credentials: config.credentials,
+    redirects: config.redirects,
+    selectedOrigin,
+    hostedOrigin,
+    mode,
+    reason,
+    sessionUser,
+  }).replace(/</g, '\\u003c');
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(config.app.name)} Sign In</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #060816;
+        --panel: #0f1326;
+        --line: #2a3155;
+        --text: #f4f7ff;
+        --muted: #b4bdd8;
+        --accent: #7ec8ff;
+        --danger: #ffb3b3;
+        --success: #baf2cf;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top, #182040 0%, var(--bg) 60%);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .panel {
+        width: min(560px, 100%);
+        background: rgba(15, 19, 38, 0.94);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 28px;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+      }
+      h1 { margin: 0 0 8px; font-size: 28px; }
+      p, label, .muted { color: var(--muted); }
+      .row { display: flex; gap: 12px; }
+      .row > * { flex: 1; }
+      .toggle, .provider, .submit, .secondary {
+        width: 100%;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        padding: 12px 16px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .toggle.active, .submit {
+        background: var(--accent);
+        color: #041321;
+        border-color: var(--accent);
+      }
+      .secondary, .provider { background: transparent; color: var(--text); }
+      .provider[disabled], .submit[disabled], .toggle[disabled] { opacity: 0.5; cursor: not-allowed; }
+      input {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: #090d1f;
+        color: var(--text);
+        padding: 12px 14px;
+        margin-top: 6px;
+      }
+      .stack { display: grid; gap: 14px; }
+      .message, .error, .success {
+        border-radius: 12px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+      }
+      .error { color: var(--danger); background: rgba(127, 19, 19, 0.22); }
+      .success { color: var(--success); background: rgba(21, 81, 44, 0.22); }
+      .legal {
+        display: grid;
+        gap: 10px;
+        padding: 14px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: rgba(9, 13, 31, 0.65);
+      }
+      a { color: var(--accent); }
+      hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
+      .hidden { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <div class="stack">
+        <div>
+          <h1>${escapeHtml(config.app.name)}</h1>
+          <p>${escapeHtml(config.app.brandTagline || 'Sign in securely.')}</p>
+        </div>
+        <div id="error-box" class="error hidden"></div>
+        <div id="success-box" class="success hidden"></div>
+        <div id="message-box" class="message${reason ? '' : ' hidden'}">${escapeHtml(
+          reason === 'missing_consent'
+            ? 'Sign-in succeeded. Finish consent to continue into the app.'
+            : error || '',
+        )}</div>
+        <div id="mode-toggle" class="row${sessionUser && reason === 'missing_consent' ? ' hidden' : ''}">
+          <button id="mode-login" class="toggle">Sign In</button>
+          <button id="mode-signup" class="toggle">Create Account</button>
+        </div>
+        <section id="provider-buttons" class="stack"></section>
+        <hr id="provider-divider" />
+        <form id="auth-form" class="stack">
+          <div id="name-field">
+            <label for="name-input">Name</label>
+            <input id="name-input" name="name" autocomplete="name" />
+          </div>
+          <div>
+            <label for="email-input">Email</label>
+            <input id="email-input" name="email" type="email" autocomplete="email" />
+          </div>
+          <div>
+            <label for="password-input">Password</label>
+            <input id="password-input" name="password" type="password" autocomplete="current-password" />
+          </div>
+          <div id="confirm-field">
+            <label for="confirm-input">Confirm Password</label>
+            <input id="confirm-input" name="confirmPassword" type="password" autocomplete="new-password" />
+          </div>
+          <div id="turnstile-widget" class="hidden"></div>
+          <div id="legal-docs" class="legal hidden"></div>
+          <button id="submit-button" class="submit" type="submit">Continue</button>
+        </form>
+      </div>
+    </main>
+    <script>
+      (() => {
+        const boot = ${bootstrap};
+        const consentOnly = Boolean(boot.sessionUser && boot.reason === 'missing_consent');
+        let mode = consentOnly ? 'signup' : (boot.mode || 'login');
+        let turnstileToken = '';
+        let turnstileWidgetId = null;
+
+        const qs = (id) => document.getElementById(id);
+        const errorBox = qs('error-box');
+        const successBox = qs('success-box');
+        const messageBox = qs('message-box');
+        const providerButtons = qs('provider-buttons');
+        const providerDivider = qs('provider-divider');
+        const legalDocs = qs('legal-docs');
+        const authForm = qs('auth-form');
+        const submitButton = qs('submit-button');
+        const nameField = qs('name-field');
+        const confirmField = qs('confirm-field');
+        const turnstileWidget = qs('turnstile-widget');
+        const emailInput = qs('email-input');
+        const nameInput = qs('name-input');
+        const modeLogin = qs('mode-login');
+        const modeSignup = qs('mode-signup');
+
+        function setError(message) {
+          errorBox.textContent = message || '';
+          errorBox.classList.toggle('hidden', !message);
+        }
+
+        function setSuccess(message) {
+          successBox.textContent = message || '';
+          successBox.classList.toggle('hidden', !message);
+        }
+
+        function renderProviders() {
+          providerButtons.innerHTML = '';
+          const activeProviders = boot.providers.filter((provider) => provider.available);
+          if (!activeProviders.length || consentOnly) {
+            providerButtons.classList.add('hidden');
+            providerDivider.classList.add('hidden');
+            return;
+          }
+          providerButtons.classList.remove('hidden');
+          providerDivider.classList.remove('hidden');
+          for (const provider of activeProviders) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'provider';
+            button.textContent = provider.label;
+            button.addEventListener('click', () => {
+              const target = new URL('/api/auth/' + provider.provider, boot.hostedOrigin);
+              target.searchParams.set('origin', boot.selectedOrigin);
+              target.searchParams.set('mode', mode);
+              window.location.href = target.toString();
+            });
+            providerButtons.appendChild(button);
+          }
+        }
+
+        function renderLegalDocs() {
+          const requiredDocs = boot.docs.filter((doc) => doc.required);
+          if (mode !== 'signup') {
+            legalDocs.classList.add('hidden');
+            legalDocs.innerHTML = '';
+            return;
+          }
+          legalDocs.classList.remove('hidden');
+          legalDocs.innerHTML = requiredDocs.map((doc) => (
+            '<label><input type="checkbox" data-consent-key="' + doc.key + '" /> I agree to the <a href="' + doc.url + '" target="_blank" rel="noopener noreferrer">' + doc.label + '</a>.</label>'
+          )).join('');
+        }
+
+        function renderMode() {
+          setError('');
+          setSuccess('');
+          modeLogin.classList.toggle('active', mode === 'login');
+          modeSignup.classList.toggle('active', mode === 'signup');
+          nameField.classList.toggle('hidden', mode !== 'signup' || consentOnly);
+          confirmField.classList.toggle('hidden', mode !== 'signup' || consentOnly);
+          emailInput.disabled = consentOnly;
+          if (consentOnly && boot.sessionUser) {
+            emailInput.value = boot.sessionUser.email || '';
+            if (nameInput) nameInput.value = boot.sessionUser.name || '';
+            submitButton.textContent = 'Complete Consent';
+            if (messageBox.classList.contains('hidden')) {
+              messageBox.classList.remove('hidden');
+            }
+          } else {
+            submitButton.textContent = mode === 'signup' ? 'Create Account' : 'Sign In';
+          }
+          renderLegalDocs();
+          renderTurnstile();
+        }
+
+        function collectConsent() {
+          const consent = {};
+          for (const checkbox of legalDocs.querySelectorAll('input[data-consent-key]')) {
+            consent[checkbox.getAttribute('data-consent-key')] = checkbox.checked;
+          }
+          return consent;
+        }
+
+        function renderTurnstile() {
+          const turnstile = boot.turnstile || { required: false, enabled: false };
+          const shouldRender = mode === 'signup' && !consentOnly && turnstile.required;
+          turnstileWidget.classList.toggle('hidden', !shouldRender);
+          if (!shouldRender) return;
+          if (!turnstile.enabled || !turnstile.siteKey) {
+            setError('Human verification is temporarily unavailable. Please contact support.');
+            return;
+          }
+          if (window.turnstile && !turnstileWidgetId) {
+            turnstileWidgetId = window.turnstile.render('#turnstile-widget', {
+              sitekey: turnstile.siteKey,
+              callback: (token) => { turnstileToken = token; setError(''); },
+              'error-callback': () => { turnstileToken = ''; setError('Human verification failed. Please try again.'); },
+              'expired-callback': () => { turnstileToken = ''; setError('Verification expired. Please verify again.'); },
+              theme: 'auto',
+              size: 'normal',
+            });
+            return;
+          }
+          if (!window.turnstile && !document.querySelector('script[data-turnstile]')) {
+            const script = document.createElement('script');
+            script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+            script.async = true;
+            script.defer = true;
+            script.dataset.turnstile = 'true';
+            script.onload = () => renderTurnstile();
+            document.head.appendChild(script);
+          }
+        }
+
+        modeLogin?.addEventListener('click', () => { mode = 'login'; renderMode(); });
+        modeSignup?.addEventListener('click', () => { mode = 'signup'; renderMode(); });
+
+        authForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          setError('');
+          submitButton.disabled = true;
+          try {
+            const consent = collectConsent();
+            let response;
+            if (consentOnly) {
+              response = await fetch('/api/auth/consent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ consent }),
+              });
+            } else if (mode === 'signup') {
+              response = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  name: nameInput.value,
+                  email: emailInput.value,
+                  password: qs('password-input').value,
+                  confirmPassword: qs('confirm-input').value,
+                  consent,
+                  turnstileToken,
+                }),
+              });
+            } else {
+              response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  email: emailInput.value,
+                  password: qs('password-input').value,
+                }),
+              });
+            }
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || payload.ok === false) {
+              throw new Error(payload.error || 'Authentication failed');
+            }
+            setSuccess(consentOnly ? 'Consent complete. Redirecting...' : 'Success. Redirecting...');
+            window.location.href = boot.selectedOrigin + (boot.redirects.postLoginPath || '/');
+          } catch (error) {
+            setError(error instanceof Error ? error.message : 'Authentication failed');
+          } finally {
+            submitButton.disabled = false;
+          }
+        });
+
+        renderProviders();
+        renderMode();
+      })();
+    </script>
+  </body>
+</html>`;
+}
+
 function getCookieDomain() {
   const value = String(process.env.AUTH_COOKIE_DOMAIN || '').trim();
   return value || null;
@@ -1101,6 +1506,30 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'auth' });
+  });
+
+  app.get('/', async (req, res) => {
+    const config = await configStore.getConfig();
+    const providers = resolveProviderClients(config, options.providers);
+    const authSession = readAuthSession(req, cookieName, sessionSecret);
+    const selectedOrigin = resolveConsumerOrigin(req, config);
+    const mode = req.query?.mode === 'signup' ? 'signup' : 'login';
+    const reason = typeof req.query?.reason === 'string' ? req.query.reason : null;
+    const error = typeof req.query?.error === 'string' ? req.query.error : null;
+    const sessionUser = 'error' in authSession ? null : authSession.session;
+
+    res.type('html').send(
+      renderHostedAuthPage({
+        config,
+        providerStatuses: buildProviderStatuses(config, providers),
+        selectedOrigin,
+        hostedOrigin: resolveHostedOrigin(req),
+        sessionUser,
+        mode,
+        reason,
+        error,
+      }),
+    );
   });
 
   app.get('/api/me', async (req, res) => {
@@ -1580,17 +2009,6 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
   app.get('/api/auth/config', async (_req, res) => {
     const config = await configStore.getConfig();
     const providers = resolveProviderClients(config, options.providers);
-    const providerStatuses: AuthProviderConfig[] = config.providers.map((provider) => {
-      const client = providers[provider.provider];
-      const available = provider.enabled && Boolean(client?.isConfigured());
-      return {
-        provider: provider.provider,
-        label: provider.label,
-        enabled: provider.enabled,
-        available,
-        reason: available ? undefined : client ? 'Provider is not configured' : 'Provider is not implemented',
-      };
-    });
 
     return res.json({
       ok: true,
@@ -1598,7 +2016,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       credentials: config.credentials,
       docs: config.docs,
       turnstile: config.turnstile,
-      providers: providerStatuses,
+      providers: buildProviderStatuses(config, providers),
     });
   });
 
@@ -1752,6 +2170,26 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     return res.status(201).json({ ok: true, user: sessionUser });
   });
 
+  app.post('/api/auth/consent', async (req, res) => {
+    const authSession = readAuthSession(req, cookieName, sessionSecret);
+    if ('error' in authSession) {
+      return res.status(authSession.status).json({ ok: false, error: authSession.error });
+    }
+    const config = await configStore.getConfig();
+    const consent = (req.body?.consent && typeof req.body.consent === 'object') ? req.body.consent as Record<string, boolean> : {};
+    const missingConsent = missingRequiredConsent(config, consent);
+    if (missingConsent) {
+      return res.status(400).json({ ok: false, error: `Please accept ${missingConsent.label}` });
+    }
+    await storage.replaceConsentAcceptances(
+      authSession.session.id,
+      config.app.id,
+      buildAcceptedConsentDocs(config, consent),
+    );
+    await storage.updateUserLogin(authSession.session.id);
+    return res.json({ ok: true, user: authSession.session });
+  });
+
   const logoutHandler = (_req: any, res: any) => {
     res.setHeader('Set-Cookie', createClearCookieHeader(cookieName, resolveSessionCookieHeaderOptions(_req)));
     return res.json({ ok: true });
@@ -1797,7 +2235,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       return res.status(503).json({ ok: false, error: `${providerId} sign-in is not configured yet.` });
     }
 
-    const origin = resolveRequestOrigin(req, config);
+    const origin = resolveConsumerOrigin(req, config);
     const callbackUrl = resolveCallbackUrl(req, config, providerId);
     const state = oauthState.issue(providerId, origin, callbackUrl, { mode: 'identity_login' });
     return res.redirect(client.buildAuthorizationUrl({ origin, callbackUrl, state }));
@@ -1892,15 +2330,28 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         profile: profile.raw,
       });
       const hasRequiredConsent = await hasRequiredConsentForApp(storage, config, user.id);
-      if (!hasRequiredConsent) {
-        const query = new URLSearchParams({ authModal: 'signup', reason: 'missing_consent' });
-        return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?${query.toString()}`);
-      }
-      await storage.updateUserLogin(user.id);
       const sessionUser = await buildSessionForUser(user);
       const sessionToken = createSessionToken(sessionUser, sessionSecret, SESSION_MAX_AGE_SECONDS);
+      if (!hasRequiredConsent) {
+        res.setHeader(
+          'Set-Cookie',
+          createSetCookieHeader(
+            cookieName,
+            sessionToken,
+            SESSION_MAX_AGE_SECONDS,
+            resolveSessionCookieHeaderOptions(req),
+          ),
+        );
+        const query = new URLSearchParams({
+          mode: 'signup',
+          reason: 'missing_consent',
+          origin: stateRecord.origin,
+        });
+        return res.redirect(`${resolveHostedOrigin(req)}/?${query.toString()}`);
+      }
+      await storage.updateUserLogin(user.id);
       const callbackOrigin = new URL(stateRecord.callbackUrl).origin;
-      if (callbackOrigin !== stateRecord.origin) {
+      if (callbackOrigin !== stateRecord.origin && !getCookieDomain()) {
         const exchangeCode = crypto.randomUUID();
         exchangeCodes.set(exchangeCode, {
           token: sessionToken,
