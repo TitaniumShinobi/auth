@@ -78,6 +78,14 @@ function trimTrailingSlash(value: string) {
 }
 
 function resolveRequestOrigin(req: any, config: AuthAppConfig) {
+  const queryOrigin =
+    req?.query && typeof req.query.origin === 'string'
+      ? trimTrailingSlash(req.query.origin)
+      : '';
+  if (queryOrigin && config.allowedOrigins.includes(queryOrigin)) {
+    return queryOrigin;
+  }
+
   const originHeader = typeof req.get === 'function' ? req.get('origin') : undefined;
   if (originHeader && config.allowedOrigins.includes(trimTrailingSlash(originHeader))) {
     return trimTrailingSlash(originHeader);
@@ -1017,6 +1025,27 @@ function resolveProviderClients(config: AuthAppConfig, overrides?: Record<string
   };
 }
 
+function getCookieDomain() {
+  const value = String(process.env.AUTH_COOKIE_DOMAIN || '').trim();
+  return value || null;
+}
+
+function requestUsesSecureCookie(req: any) {
+  const protoHeader = typeof req.get === 'function' ? req.get('x-forwarded-proto') : undefined;
+  const forwardedProto = protoHeader ? String(protoHeader).split(',')[0].trim().toLowerCase() : '';
+  if (forwardedProto) {
+    return forwardedProto === 'https';
+  }
+  return Boolean(req?.secure);
+}
+
+function resolveSessionCookieHeaderOptions(req: any) {
+  return {
+    secure: requestUsesSecureCookie(req),
+    domain: getCookieDomain(),
+  };
+}
+
 export async function createAuthApp(options: CreateAuthAppOptions = {}) {
   const storage = options.storage || createDefaultStorage();
   const configStore = options.configStore || new FileAppConfigStore();
@@ -1054,6 +1083,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
   }
 
   const app = express();
+  app.set('trust proxy', true);
   app.disable('x-powered-by');
   app.use(express.json({ limit: '12mb' }));
   app.use(async (req, res, next) => {
@@ -1069,12 +1099,39 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     res.json({ ok: true, service: 'auth' });
   });
 
+  app.get('/api/health', (_req, res) => {
+    res.json({ ok: true, service: 'auth' });
+  });
+
   app.get('/api/me', async (req, res) => {
     const authSession = readAuthSession(req, cookieName, sessionSecret);
     if ('error' in authSession) {
       return res.status(authSession.status).json({ ok: false, error: authSession.error });
     }
     return res.json({ ok: true, user: authSession.session });
+  });
+
+  app.get('/api/auth/google/health', async (req, res) => {
+    const config = await configStore.getConfig();
+    const providers = resolveProviderClients(config, options.providers);
+    const configuredProvider = config.providers.find((provider) => provider.provider === 'google');
+    const client = providers.google;
+    const callbackUrl = resolveCallbackUrl(req, config, 'google');
+    const cookieOptions = resolveSessionCookieHeaderOptions(req);
+
+    return res.json({
+      oauth_configured: Boolean(client?.isConfigured()),
+      redirect_uri: callbackUrl,
+      environment: process.env.NODE_ENV || 'development',
+      client_id_present: Boolean(resolveProviderCredentials('google', config).clientId),
+      client_secret_present: Boolean(resolveProviderCredentials('google', config).clientSecret),
+      validation_passed: Boolean(configuredProvider?.enabled && client?.isConfigured()),
+      allowed_origins: [...config.allowedOrigins],
+      auth_public_origin: getPublicOriginFallback(),
+      auth_cookie_name: cookieName,
+      auth_cookie_domain: cookieOptions.domain,
+      auth_cookie_secure: cookieOptions.secure,
+    });
   });
 
   app.get('/api/code/ask/status', async (req, res) => {
@@ -1613,7 +1670,15 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
 
     await storage.updateUserLogin(user.id);
     const sessionUser = await buildSessionForUser(user);
-    res.setHeader('Set-Cookie', createSetCookieHeader(cookieName, createSessionToken(sessionUser, sessionSecret, SESSION_MAX_AGE_SECONDS), SESSION_MAX_AGE_SECONDS, false));
+    res.setHeader(
+      'Set-Cookie',
+      createSetCookieHeader(
+        cookieName,
+        createSessionToken(sessionUser, sessionSecret, SESSION_MAX_AGE_SECONDS),
+        SESSION_MAX_AGE_SECONDS,
+        resolveSessionCookieHeaderOptions(req),
+      ),
+    );
     return res.json({ ok: true, user: sessionUser });
   });
 
@@ -1681,14 +1746,14 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         cookieName,
         createSessionToken(sessionUser, sessionSecret, SESSION_MAX_AGE_SECONDS),
         SESSION_MAX_AGE_SECONDS,
-        false,
+        resolveSessionCookieHeaderOptions(req),
       ),
     );
     return res.status(201).json({ ok: true, user: sessionUser });
   });
 
   const logoutHandler = (_req: any, res: any) => {
-    res.setHeader('Set-Cookie', createClearCookieHeader(cookieName, false));
+    res.setHeader('Set-Cookie', createClearCookieHeader(cookieName, resolveSessionCookieHeaderOptions(_req)));
     return res.json({ ok: true });
   };
   app.post('/api/logout', logoutHandler);
@@ -1707,7 +1772,15 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     if (Date.now() - entry.createdAt > EXCHANGE_CODE_TTL_MS) {
       return res.redirect(`${entry.origin}${config.redirects.postLoginPath}?error=expired_code`);
     }
-    res.setHeader('Set-Cookie', createSetCookieHeader(cookieName, entry.token, SESSION_MAX_AGE_SECONDS, false));
+    res.setHeader(
+      'Set-Cookie',
+      createSetCookieHeader(
+        cookieName,
+        entry.token,
+        SESSION_MAX_AGE_SECONDS,
+        resolveSessionCookieHeaderOptions(req),
+      ),
+    );
     return res.redirect(`${entry.origin}${config.redirects.postLoginPath}`);
   });
 
@@ -1836,7 +1909,15 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         });
         return res.redirect(`${stateRecord.origin}/api/auth/set-session?code=${encodeURIComponent(exchangeCode)}`);
       }
-      res.setHeader('Set-Cookie', createSetCookieHeader(cookieName, sessionToken, SESSION_MAX_AGE_SECONDS, false));
+      res.setHeader(
+        'Set-Cookie',
+        createSetCookieHeader(
+          cookieName,
+          sessionToken,
+          SESSION_MAX_AGE_SECONDS,
+          resolveSessionCookieHeaderOptions(req),
+        ),
+      );
       return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'oauth_failed';

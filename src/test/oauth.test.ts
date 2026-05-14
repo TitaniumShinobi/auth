@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import type { AppConfigStore, AuthAppConfig, OAuthProviderClient } from '../types.js';
 import { createAuthApp } from '../app.js';
+import { FileAppConfigStore } from '../config.js';
 import { resolveProviderCredentials } from '../auth/oauth.js';
 import { MemoryStorageAdapter } from '../persistence/memoryStorage.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const SHARED_CONFIG_PATH = path.resolve(__dirname, '../../config/chatty-vvault-shared.json');
+const LOCAL_CONFIG_PATH = path.resolve(__dirname, '../../config/chatty-vvault-local.json');
 
 const CONFIG: AuthAppConfig = {
   app: { id: 'code', name: 'Code' },
@@ -241,6 +249,33 @@ test('starts OAuth with the configured callback base when legacy callback env va
       }
     }
   }
+});
+
+test('shared production config keeps allowed origins production-only', async () => {
+  const store = new FileAppConfigStore(SHARED_CONFIG_PATH);
+  const config = await store.getConfig();
+
+  assert.deepEqual(config.allowedOrigins, [
+    'https://chatty.thewreck.org',
+    'https://vvault.thewreck.org',
+  ]);
+  assert.equal(config.oauth?.envPrefix, 'THEWRECK_AUTH');
+  assert.equal(config.redirects.postLoginPath, '/');
+  assert.equal(config.allowedOrigins.some((origin) => origin.includes('localhost')), false);
+});
+
+test('shared local config keeps localhost origins explicit and production-free', async () => {
+  const store = new FileAppConfigStore(LOCAL_CONFIG_PATH);
+  const config = await store.getConfig();
+
+  assert.deepEqual(config.allowedOrigins, [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:7784',
+    'http://127.0.0.1:7784',
+  ]);
+  assert.equal(config.oauth?.envPrefix, 'THEWRECK_LOCAL_AUTH');
+  assert.equal(config.allowedOrigins.some((origin) => origin.includes('thewreck.org')), false);
 });
 
 test('rejects OAuth callback with invalid state', async () => {

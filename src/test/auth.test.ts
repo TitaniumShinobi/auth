@@ -173,6 +173,154 @@ test('rejects invalid login and returns signed-in / signed-out session states', 
   });
 });
 
+test('oauth health reports explicit production callback and secure parent-domain cookie contract', async () => {
+  const originalEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    AUTH_PUBLIC_ORIGIN: process.env.AUTH_PUBLIC_ORIGIN,
+    AUTH_COOKIE_DOMAIN: process.env.AUTH_COOKIE_DOMAIN,
+    THEWRECK_AUTH_PUBLIC_CALLBACK_BASE: process.env.THEWRECK_AUTH_PUBLIC_CALLBACK_BASE,
+    THEWRECK_AUTH_GOOGLE_CLIENT_ID: process.env.THEWRECK_AUTH_GOOGLE_CLIENT_ID,
+    THEWRECK_AUTH_GOOGLE_CLIENT_SECRET: process.env.THEWRECK_AUTH_GOOGLE_CLIENT_SECRET,
+  };
+
+  process.env.NODE_ENV = 'production';
+  process.env.AUTH_PUBLIC_ORIGIN = 'https://auth.thewreck.org';
+  process.env.AUTH_COOKIE_DOMAIN = '.thewreck.org';
+  process.env.THEWRECK_AUTH_PUBLIC_CALLBACK_BASE = 'https://auth.thewreck.org';
+  process.env.THEWRECK_AUTH_GOOGLE_CLIENT_ID = 'prod-client';
+  process.env.THEWRECK_AUTH_GOOGLE_CLIENT_SECRET = 'prod-secret';
+
+  const config: AuthAppConfig = {
+    app: {
+      id: 'thewreck_auth',
+      name: 'TheWreck Shared Auth',
+    },
+    oauth: {
+      envPrefix: 'THEWRECK_AUTH',
+    },
+    allowedOrigins: [
+      'https://chatty.thewreck.org',
+      'https://vvault.thewreck.org',
+    ],
+    redirects: {
+      postLoginPath: '/',
+      postLogoutPath: '/',
+    },
+    credentials: {
+      enabled: true,
+    },
+    docs: [],
+    turnstile: {
+      required: false,
+      enabled: false,
+    },
+    providers: [
+      { provider: 'google', label: 'Continue with Google', enabled: true },
+    ],
+  };
+
+  try {
+    await withServer({ config }, async ({ baseUrl }) => {
+      const response = await fetch(`${baseUrl}/api/auth/google/health`, {
+        headers: {
+          host: 'auth.thewreck.org',
+          'x-forwarded-proto': 'https',
+        },
+      });
+      assert.equal(response.status, 200);
+      const payload = await response.json() as Record<string, unknown>;
+      assert.equal(payload.redirect_uri, 'https://auth.thewreck.org/api/auth/google/callback');
+      assert.deepEqual(payload.allowed_origins, [
+        'https://chatty.thewreck.org',
+        'https://vvault.thewreck.org',
+      ]);
+      assert.equal(payload.auth_public_origin, 'https://auth.thewreck.org');
+      assert.equal(payload.auth_cookie_name, 'auth_sid');
+      assert.equal(payload.auth_cookie_domain, '.thewreck.org');
+      assert.equal(payload.auth_cookie_secure, true);
+      assert.equal(payload.validation_passed, true);
+    });
+  } finally {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('login honors explicit allowed origin query and returns to that app origin', async () => {
+  const provider: OAuthProviderClient = {
+    provider: 'google',
+    label: 'Continue with Google',
+    isConfigured: () => true,
+    buildAuthorizationUrl: ({ state, callbackUrl }) =>
+      `https://accounts.google.test/auth?state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(callbackUrl)}`,
+    exchangeCodeForProfile: async ({ code }) => ({
+      providerUserId: `google-${code}`,
+      email: 'oauth@example.com',
+      displayName: 'OAuth Devon',
+      avatarUrl: 'https://example.com/avatar.png',
+      raw: { sub: `google-${code}` },
+    }),
+  };
+
+  const config: AuthAppConfig = {
+    app: {
+      id: 'thewreck_auth',
+      name: 'TheWreck Shared Auth',
+    },
+    oauth: {
+      envPrefix: 'THEWRECK_AUTH',
+    },
+    allowedOrigins: [
+      'https://chatty.thewreck.org',
+      'https://vvault.thewreck.org',
+    ],
+    redirects: {
+      postLoginPath: '/',
+      postLogoutPath: '/',
+    },
+    credentials: {
+      enabled: true,
+    },
+    docs: [],
+    turnstile: {
+      required: false,
+      enabled: false,
+    },
+    providers: [
+      { provider: 'google', label: 'Continue with Google', enabled: true },
+    ],
+  };
+
+  await withServer({ config, providers: { google: provider } }, async ({ baseUrl }) => {
+    const start = await fetch(`${baseUrl}/api/auth/google?origin=${encodeURIComponent('https://vvault.thewreck.org')}`, {
+      headers: {
+        host: 'auth.thewreck.org',
+        'x-forwarded-proto': 'https',
+      },
+      redirect: 'manual',
+    });
+    assert.equal(start.status, 302);
+    const location = start.headers.get('location');
+    assert.ok(location);
+    const authUrl = new URL(location);
+    const state = authUrl.searchParams.get('state');
+    assert.ok(state);
+
+    const callback = await fetch(`${baseUrl}/api/auth/google/callback?code=test-code&state=${encodeURIComponent(state)}`, {
+      headers: {
+        host: 'auth.thewreck.org',
+        'x-forwarded-proto': 'https',
+      },
+      redirect: 'manual',
+    });
+    assert.equal(callback.status, 302);
+    const callbackLocation = callback.headers.get('location') || '';
+    assert.match(callbackLocation, /^https:\/\/vvault\.thewreck\.org\/api\/auth\/set-session\?code=/);
+  });
+});
+
 test('login returns lifeRegistryMatch when email is in LIFE registry but not in local auth DB', async () => {
   await withServer(
     {

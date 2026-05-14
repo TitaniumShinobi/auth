@@ -1,0 +1,95 @@
+{
+  "app": {
+    "id": "thewreck_local_auth",
+    "name": "TheWreck Local Shared Auth",
+    "brandTagline": "Shared local authentication for Chatty and VVAULT."
+  },
+  "oauth": {
+    "envPrefix": "THEWRECK_LOCAL_AUTH"
+  },
+  "allowedOrigins": [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:7784",
+    "http://127.0.0.1:7784"
+  ],
+  "redirects": {
+    "postLoginPath": "/",
+    "postLogoutPath": "/"
+  },
+  "credentials": {
+    "enabled": true
+  },
+  "docs": [
+    {
+      "product": "chatty",
+      "docType": "terms",
+      "key": "chatty:terms",
+      "version": "2026-03-13",
+      "label": "Chatty Terms of Service",
+      "url": "http://localhost:5173/legal/terms",
+      "required": true
+    },
+    {
+      "product": "chatty",
+      "docType": "privacy",
+      "key": "chatty:privacy",
+      "version": "2026-03-13",
+      "label": "Chatty Privacy Notice",
+      "url": "http://localhost:5173/legal/privacy",
+      "required": true
+    },
+    {
+      "product": "chatty",
+      "docType": "eeccd",
+      "key": "chatty:eeccd",
+      "version": "2026-03-13",
+      "label": "Chatty EECCD Disclosure",
+      "url": "http://localhost:5173/legal/eeccd",
+      "required": true
+    },
+    {
+      "product": "vvault",
+      "docType": "terms",
+      "key": "vvault:terms",
+      "version": "2026-03-13",
+      "label": "VVAULT Terms of Service",
+      "url": "http://localhost:7784/assets/legal/vvault-terms.html",
+      "required": true
+    },
+    {
+      "product": "vvault",
+      "docType": "privacy",
+      "key": "vvault:privacy",
+      "version": "2026-03-13",
+      "label": "VVAULT Privacy Notice",
+      "url": "http://localhost:7784/assets/legal/vvault-privacy.html",
+      "required": true
+    },
+    {
+      "product": "vvault",
+      "docType": "eeccd",
+      "key": "vvault:eeccd",
+      "version": "2026-03-13",
+      "label": "VVAULT EECCD Disclosure",
+      "url": "http://localhost:7784/assets/legal/vvault-eeccd.html",
+      "required": true
+    }
+  ],
+  "turnstile": {
+    "required": false,
+    "enabled": false
+  },
+  "providers": [
+    {
+      "provider": "google",
+      "label": "Continue with Google",
+      "enabled": true
+    },
+    {
+      "provider": "github",
+      "label": "Continue with GitHub",
+      "enabled": true
+    }
+  ]
+}
