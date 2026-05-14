@@ -1204,7 +1204,7 @@ function renderHostedAuthPage({
             ? 'Sign-in succeeded. Finish consent to continue into the app.'
             : error || '',
         )}</div>
-        <div id="mode-toggle" class="row${sessionUser && reason === 'missing_consent' ? ' hidden' : ''}">
+        <div id="mode-toggle" class="row${reason === 'missing_consent' ? ' hidden' : ''}">
           <button id="mode-login" class="toggle">Sign In</button>
           <button id="mode-signup" class="toggle">Create Account</button>
         </div>
@@ -1236,7 +1236,7 @@ function renderHostedAuthPage({
     <script>
       (() => {
         const boot = ${bootstrap};
-        const consentOnly = Boolean(boot.sessionUser && boot.reason === 'missing_consent');
+        const consentOnly = boot.reason === 'missing_consent';
         let mode = consentOnly ? 'signup' : (boot.mode || 'login');
         let turnstileToken = '';
         let turnstileWidgetId = null;

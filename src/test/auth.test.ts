@@ -871,6 +871,20 @@ test('serves a hosted auth page from the auth origin', async () => {
   });
 });
 
+test('missing consent hosted page always uses the consent-completion submit path', async () => {
+  await withServer({}, async ({ baseUrl }) => {
+    const response = await fetch(
+      `${baseUrl}/?origin=http%3A%2F%2Flocalhost%3A2048&mode=signup&reason=missing_consent`,
+    );
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /Sign-in succeeded\. Finish consent to continue into the app\./);
+    assert.match(html, /const consentOnly = boot\.reason === 'missing_consent';/);
+    assert.match(html, /api\/auth\/consent/);
+    assert.match(html, /Complete Consent/);
+  });
+});
+
 test('enforces turnstile when required', async () => {
   await withServer({
     config: {
