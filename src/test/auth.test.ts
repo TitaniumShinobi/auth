@@ -50,6 +50,33 @@ class StaticConfigStore implements AppConfigStore {
   }
 }
 
+function getSetCookies(response: Response) {
+  const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+  const setCookies = headers.getSetCookie?.();
+  if (setCookies?.length) return setCookies;
+  const combined = response.headers.get('set-cookie');
+  return combined ? combined.split(/,(?=\s*auth_sid=)/).map((cookie) => cookie.trim()) : [];
+}
+
+async function withEnv<T>(vars: Record<string, string>, fn: () => Promise<T>) {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(vars)) {
+    previous.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 async function withServer(
   options: {
     config?: AuthAppConfig;
@@ -803,6 +830,76 @@ test('answers credentialed CORS preflight for allowed origins', async () => {
     assert.equal(response.status, 204);
     assert.equal(response.headers.get('access-control-allow-origin'), 'http://localhost:2048');
     assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
+  });
+});
+
+test('POST /api/auth/logout clears hosted auth_sid cookies for credentialed Chatty JSON logout', async () => {
+  await withEnv({
+    AUTH_COOKIE_DOMAIN: '.thewreck.org',
+    AUTH_PUBLIC_ORIGIN: 'https://auth.thewreck.org',
+  }, async () => {
+    await withServer({
+      config: {
+        ...TEST_CONFIG,
+        allowedOrigins: ['http://localhost:2048', 'https://chatty.thewreck.org'],
+      },
+    }, async ({ baseUrl }) => {
+      const response = await fetch(`${baseUrl}/api/auth/logout`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://chatty.thewreck.org',
+          'Content-Type': 'application/json',
+          'X-Forwarded-Proto': 'https',
+        },
+        redirect: 'manual',
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('location'), null);
+      assert.equal(response.headers.get('access-control-allow-origin'), 'https://chatty.thewreck.org');
+      assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
+      const payload = await response.json() as { ok: boolean };
+      assert.equal(payload.ok, true);
+
+      const cookies = getSetCookies(response);
+      assert.equal(cookies.length, 2);
+      assert.ok(cookies.some((cookie) => /^auth_sid=; Path=\/; HttpOnly; SameSite=Lax; Max-Age=0; Secure$/.test(cookie)));
+      assert.ok(cookies.some((cookie) => /^auth_sid=; Path=\/; HttpOnly; SameSite=Lax; Max-Age=0; Domain=\.thewreck\.org; Secure$/.test(cookie)));
+    });
+  });
+});
+
+test('hosted GET /api/auth/logout redirects after clearing host-only and configured-domain auth_sid', async () => {
+  await withEnv({
+    AUTH_COOKIE_DOMAIN: '.thewreck.org',
+    AUTH_PUBLIC_ORIGIN: 'https://auth.thewreck.org',
+  }, async () => {
+    await withServer({
+      config: {
+        ...TEST_CONFIG,
+        allowedOrigins: ['http://localhost:2048', 'https://chatty.thewreck.org'],
+      },
+    }, async ({ baseUrl }) => {
+      const response = await fetch(`${baseUrl}/api/auth/logout?origin=https%3A%2F%2Fchatty.thewreck.org`, {
+        method: 'GET',
+        headers: {
+          Origin: 'https://chatty.thewreck.org',
+          'X-Forwarded-Proto': 'https',
+        },
+        redirect: 'manual',
+      });
+
+      assert.equal(response.status, 302);
+      assert.equal(response.headers.get('location'), 'https://chatty.thewreck.org/');
+      assert.equal(response.headers.get('access-control-allow-origin'), 'https://chatty.thewreck.org');
+      assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
+
+      const cookies = getSetCookies(response);
+      assert.equal(cookies.length, 2);
+      assert.ok(cookies.every((cookie) => cookie.includes('Max-Age=0') && cookie.includes('Secure')));
+      assert.ok(cookies.some((cookie) => !cookie.includes('Domain=')));
+      assert.ok(cookies.some((cookie) => cookie.includes('Domain=.thewreck.org')));
+    });
   });
 });
 

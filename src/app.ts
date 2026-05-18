@@ -1438,6 +1438,15 @@ function getCookieDomain() {
 }
 
 function requestUsesSecureCookie(req: any) {
+  const publicOrigin = String(process.env.AUTH_PUBLIC_ORIGIN || '').trim();
+  if (publicOrigin) {
+    try {
+      if (new URL(publicOrigin).protocol === 'https:') return true;
+    } catch {
+      // Fall back to request headers.
+    }
+  }
+
   const protoHeader = typeof req.get === 'function' ? req.get('x-forwarded-proto') : undefined;
   const forwardedProto = protoHeader ? String(protoHeader).split(',')[0].trim().toLowerCase() : '';
   if (forwardedProto) {
@@ -1451,6 +1460,20 @@ function resolveSessionCookieHeaderOptions(req: any) {
     secure: requestUsesSecureCookie(req),
     domain: getCookieDomain(),
   };
+}
+
+function createClearSessionCookieHeaders(req: any, cookieName: string) {
+  const options = resolveSessionCookieHeaderOptions(req);
+  const headers = [
+    createClearCookieHeader(cookieName, {
+      secure: options.secure,
+      domain: null,
+    }),
+  ];
+  if (options.domain) {
+    headers.push(createClearCookieHeader(cookieName, options));
+  }
+  return headers;
 }
 
 export async function createAuthApp(options: CreateAuthAppOptions = {}) {
@@ -2192,14 +2215,19 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     return res.json({ ok: true, user: authSession.session });
   });
 
-  const logoutHandler = (_req: any, res: any) => {
-    res.setHeader('Set-Cookie', createClearCookieHeader(cookieName, resolveSessionCookieHeaderOptions(_req)));
+  const jsonLogoutHandler = (req: any, res: any) => {
+    res.setHeader('Set-Cookie', createClearSessionCookieHeaders(req, cookieName));
     return res.json({ ok: true });
   };
-  app.post('/api/logout', logoutHandler);
+  const hostedLogoutHandler = async (req: any, res: any) => {
+    const config = await configStore.getConfig();
+    res.setHeader('Set-Cookie', createClearSessionCookieHeaders(req, cookieName));
+    return res.redirect(`${resolveConsumerOrigin(req, config)}${config.redirects.postLogoutPath || '/'}`);
+  };
+  app.post('/api/logout', jsonLogoutHandler);
   // Aliases for clients that expect `/api/auth/*` (matches sign-out fallbacks in Code host).
-  app.post('/api/auth/logout', logoutHandler);
-  app.get('/api/auth/logout', logoutHandler);
+  app.post('/api/auth/logout', jsonLogoutHandler);
+  app.get('/api/auth/logout', hostedLogoutHandler);
 
   app.get('/api/auth/set-session', async (req, res) => {
     const code = String(req.query.code || '');
