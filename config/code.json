@@ -8,8 +8,7 @@
     "envPrefix": "CODE"
   },
   "allowedOrigins": [
-    "http://localhost:2048",
-    "http://127.0.0.1:2048"
+    "http://localhost:2048"
   ],
   "redirects": {
     "postLoginPath": "/",

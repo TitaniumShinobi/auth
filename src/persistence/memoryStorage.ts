@@ -36,6 +36,8 @@ export class MemoryStorageAdapter implements StorageAdapter {
     return id ? this.users.get(id) ?? null : null;
   }
 
+  async findUserByLifeUserId(subject:string) { const rows=[...this.users.values()].filter(user=>user.lifeUserId===subject); return rows.length===1?rows[0]:null; }
+
   async findUserById(id: string) {
     return this.users.get(id) ?? null;
   }
@@ -176,6 +178,11 @@ export class MemoryStorageAdapter implements StorageAdapter {
 
   async replaceConsentAcceptances(userId: string, appId: string, docs: ConsentAcceptance[]) {
     this.consentMap.set(`${userId}:${appId}`, docs);
+  }
+
+  async hasAcceptedConsentDocs(userId: string, appId: string, docs: {key:string;version:string}[]) {
+    const accepted=this.consentMap.get(`${userId}:${appId}`)||[];
+    return docs.length>0 && docs.every(doc=>accepted.some(row=>row.key===doc.key && row.version===doc.version));
   }
 
   async hasAcceptedConsentKeys(userId: string, appId: string, requiredKeys: string[]) {

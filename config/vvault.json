@@ -9,7 +9,10 @@
   },
   "allowedOrigins": [
     "http://localhost:7784",
-    "http://127.0.0.1:7784"
+    "http://localhost:8000",
+    "http://localhost:5173",
+    "https://chatty.thewreck.org",
+    "https://vvault.thewreck.org"
   ],
   "redirects": {
     "postLoginPath": "/",
@@ -46,11 +49,6 @@
     {
       "provider": "google",
       "label": "Continue with Google",
-      "enabled": true
-    },
-    {
-      "provider": "github",
-      "label": "Continue with GitHub",
       "enabled": true
     }
   ]

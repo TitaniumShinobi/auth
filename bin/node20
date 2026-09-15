@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+auth_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+runtime_helper="${VVAULT_NODE_RUNTIME_HELPER:-${auth_root}/../vvault/scripts/vvault-node-runtime.sh}"
+if [ ! -f "${runtime_helper}" ]; then
+  echo "Auth requires the shared VVAULT Node runtime helper: ${runtime_helper}" >&2
+  exit 1
+fi
+# shellcheck source=/dev/null
+source "${runtime_helper}"
+resolve_vvault_node_runtime
+exec "${VVAULT_NODE_BIN}" "$@"

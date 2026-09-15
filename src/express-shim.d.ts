@@ -9,6 +9,7 @@ declare module 'express' {
     (): Express;
     Router: () => any;
     json: (options?: any) => any;
+    urlencoded: (options?: any) => any;
   };
 
   const express: ExpressFactory;

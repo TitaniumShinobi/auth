@@ -1,0 +1,92 @@
+{
+  "app": {
+    "id": "chatty",
+    "name": "Chatty",
+    "brandTagline": "Continue your conversations securely."
+  },
+  "oauth": {
+    "envPrefix": "CHATTY"
+  },
+  "allowedOrigins": [
+    "http://localhost:5173",
+    "http://localhost:5050"
+  ],
+  "redirects": {
+    "postLoginPath": "/",
+    "postLogoutPath": "/login"
+  },
+  "credentials": {
+    "enabled": true
+  },
+  "sessionFederation": {
+    "enabled": true,
+    "assertionSecretEnv": "CHATTY_AUTH_FEDERATION_SECRET"
+  },
+  "publicClients": [
+    {
+      "clientId": "chatty-web-link",
+      "authorizationUiUrl": "http://localhost:5173/login",
+      "redirectUris": [
+        "http://localhost:5173/auth/connect-callback",
+        "http://localhost:5173/api/auth/paired/callback"
+      ],
+      "scopes": [
+        "openid",
+        "profile",
+        "email"
+      ]
+    },
+    {
+      "clientId": "chatty-cli",
+      "authorizationUiUrl": "http://localhost:5173/login",
+      "loopback": {
+        "hosts": [
+          "127.0.0.1",
+          "::1",
+          "localhost"
+        ],
+        "path": "/cli-auth-callback",
+        "allowDynamicPorts": true
+      },
+      "scopes": [
+        "openid",
+        "profile",
+        "email"
+      ]
+    }
+  ],
+  "docs": [
+    {
+      "key": "chatty:terms",
+      "version": "2026-03-13",
+      "label": "Chatty Terms of Service",
+      "url": "http://localhost:5173/legal/terms",
+      "required": true
+    },
+    {
+      "key": "chatty:privacy",
+      "version": "2026-03-13",
+      "label": "Chatty Privacy Notice",
+      "url": "http://localhost:5173/legal/privacy",
+      "required": true
+    },
+    {
+      "key": "chatty:eeccd",
+      "version": "2026-03-13",
+      "label": "Chatty EECCD Disclosure",
+      "url": "http://localhost:5173/legal/eeccd",
+      "required": true
+    }
+  ],
+  "turnstile": {
+    "required": false,
+    "enabled": false
+  },
+  "providers": [
+    {
+      "provider": "google",
+      "label": "Continue with Google",
+      "enabled": true
+    }
+  ]
+}

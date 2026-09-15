@@ -177,6 +177,8 @@ export class SqliteStorageAdapter implements StorageAdapter {
     return rows[0] ? mapUser(rows[0]) : null;
   }
 
+  async findUserByLifeUserId(subject:string) { const rows=querySql<{id:string}>(this.dbPath,`SELECT id FROM users WHERE life_user_id=${sqlString(subject)} LIMIT 2`); return rows.length===1?this.findUserById(rows[0].id):null; }
+
   async findUserById(id: string) {
     const rows = querySql<SqlUserRow>(
       this.dbPath,
@@ -451,6 +453,11 @@ export class SqliteStorageAdapter implements StorageAdapter {
         `,
       );
     }
+  }
+
+  async hasAcceptedConsentDocs(userId: string, appId: string, docs: {key:string;version:string}[]) {
+    const rows=querySql<{consent_key:string;doc_version:string}>(this.dbPath,`SELECT consent_key, doc_version FROM consent_acceptances WHERE user_id=${sqlString(userId)} AND app_id=${sqlString(appId)}`);
+    return docs.length>0 && docs.every(doc=>rows.some(row=>row.consent_key===doc.key && row.doc_version===doc.version));
   }
 
   async hasAcceptedConsentKeys(userId: string, appId: string, requiredKeys: string[]) {

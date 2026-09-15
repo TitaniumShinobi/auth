@@ -9,8 +9,55 @@
 export type LifeProfileResult = {
   lifeUserId: string;
   supabaseUserId: string | null;
-  source: 'cache' | 'supabase_found' | 'supabase_upserted' | 'local_only';
+  source: 'cache' | 'supabase_found' | 'supabase_upserted' | 'local_only' | 'local_registry';
 };
+
+const SUPABASE_QUERY_TIMEOUT_MS = Number(process.env.SUPABASE_QUERY_TIMEOUT_MS || 2500);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function normalizeEmail(email: string | null | undefined) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function isSupabaseUuid(value: string | null | undefined) {
+  return typeof value === 'string' && UUID_RE.test(value.trim());
+}
+
+function parseConfiguredEmailMap(
+  envKey: string,
+  validator?: (value: string) => boolean,
+) {
+  const mapped = new Map<string, string>();
+
+  const configured = String(process.env[envKey] || '').trim();
+  if (!configured) return mapped;
+
+  for (const entry of configured.split(',')) {
+    const [rawEmail, rawValue] = entry.split('=');
+    const normalizedEmail = normalizeEmail(rawEmail);
+    const normalizedValue = String(rawValue || '').trim();
+    if (!normalizedEmail || !normalizedValue) continue;
+    if (validator && !validator(normalizedValue)) continue;
+    mapped.set(normalizedEmail, normalizedValue);
+  }
+
+  return mapped;
+}
+
+function resolveLocalRegistryLifeUserId(email: string) {
+  const configured = parseConfiguredEmailMap(
+    'AUTH_CANONICAL_EMAIL_LIFE_IDS',
+  );
+  return configured.get(normalizeEmail(email)) || null;
+}
+
+function resolveLocalRegistrySupabaseUserId(email: string) {
+  const configured = parseConfiguredEmailMap(
+    'AUTH_CANONICAL_EMAIL_SUPABASE_IDS',
+    isSupabaseUuid,
+  );
+  return configured.get(normalizeEmail(email)) || null;
+}
 
 function trimSupabaseUrl(url: string) {
   return url.replace(/\/+$/, '');
@@ -55,15 +102,38 @@ async function supabaseRequest(
   };
   if (init.prefer) headers.Prefer = init.prefer;
 
-  const res = await fetch(`${cfg.url}/rest/v1/${path}`, { ...init, headers });
-  const text = await res.text();
-  let json: unknown;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(new Error('timeout')), SUPABASE_QUERY_TIMEOUT_MS);
+
   try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = null;
+    const res = await fetch(`${cfg.url}/rest/v1/${path}`, {
+      ...init,
+      headers,
+      signal: init.signal || controller.signal,
+    });
+    const text = await res.text();
+    let json: unknown;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    return { ok: res.ok, status: res.status, json, text, timedOut: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === 'timeout' || error instanceof DOMException) {
+      return {
+        ok: false,
+        status: null,
+        json: null,
+        text: '',
+        timedOut: true,
+      };
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return { ok: res.ok, status: res.status, json, text };
 }
 
 type SupabaseUserRow = {
@@ -140,24 +210,37 @@ export type ResolveLifeProfileInput = {
 };
 
 export async function resolveLifeProfile(input: ResolveLifeProfileInput): Promise<LifeProfileResult> {
-  const email = input.email.toLowerCase();
+  const email = normalizeEmail(input.email);
   const displayName = input.displayName?.trim() || email.split('@')[0] || 'User';
+  const cachedLifeUserId = input.cachedLifeUserId?.trim() || null;
+  const cachedSupabaseUserId = input.cachedSupabaseUserId?.trim() || null;
 
-  if (input.cachedLifeUserId?.trim() && input.cachedSupabaseUserId?.trim()) {
+  if (cachedLifeUserId && cachedSupabaseUserId) {
     return {
-      lifeUserId: input.cachedLifeUserId.trim(),
-      supabaseUserId: input.cachedSupabaseUserId.trim(),
+      lifeUserId: cachedLifeUserId,
+      supabaseUserId: cachedSupabaseUserId,
       source: 'cache',
+    };
+  }
+
+  const localRegistryLifeUserId = resolveLocalRegistryLifeUserId(email);
+  const localRegistrySupabaseUserId = resolveLocalRegistrySupabaseUserId(email);
+  if (localRegistrySupabaseUserId) {
+    return {
+      lifeUserId: cachedLifeUserId || localRegistryLifeUserId || generateLIFEUserId(displayName, email),
+      supabaseUserId: localRegistrySupabaseUserId,
+      source: 'local_registry',
     };
   }
 
   const cfg = getSupabaseRestConfig();
   if (!cfg) {
-    const lifeUserId = input.cachedLifeUserId?.trim()
+    const lifeUserId = cachedLifeUserId
+      || localRegistryLifeUserId
       || generateLIFEUserId(displayName, email);
     return {
       lifeUserId,
-      supabaseUserId: input.cachedSupabaseUserId?.trim() || null,
+      supabaseUserId: cachedSupabaseUserId || null,
       source: 'local_only',
     };
   }
@@ -169,7 +252,8 @@ export async function resolveLifeProfile(input: ResolveLifeProfileInput): Promis
   if (!supabaseUserId) {
     supabaseUserId = await upsertSupabaseUser(email, displayName);
     if (!supabaseUserId) {
-      const lifeUserId = input.cachedLifeUserId?.trim()
+      const lifeUserId = cachedLifeUserId
+        || localRegistryLifeUserId
         || generateLIFEUserId(displayName, email);
       return { lifeUserId, supabaseUserId: null, source: 'local_only' };
     }
@@ -177,7 +261,7 @@ export async function resolveLifeProfile(input: ResolveLifeProfileInput): Promis
     source = 'supabase_upserted';
   }
 
-  let lifeUserId: string | null = input.cachedLifeUserId?.trim() || null;
+  let lifeUserId: string | null = cachedLifeUserId || localRegistryLifeUserId || null;
   if (!lifeUserId) {
     lifeUserId = await fetchLifeUserIdColumn(supabaseUserId);
   }

@@ -47,16 +47,112 @@ export type AuthAppConfig = {
   docs: AuthLegalDoc[];
   turnstile: AuthTurnstileConfig;
   providers: AuthProviderDefinition[];
+  publicClients?: AuthPublicClient[];
+  sessionFederation?: {
+    enabled: boolean;
+    assertionSecretEnv: string;
+  };
+};
+
+export type AuthPublicClient = {
+  clientId: string;
+  authorizationUiUrl: string;
+  redirectUris?: string[];
+  loopback?: {
+    hosts: string[];
+    path: string;
+    allowDynamicPorts: boolean;
+  };
+  scopes?: string[];
 };
 
 export type SessionUser = {
+  providerIdentity?: import('./auth/canonicalOwner.js').VerifiedProviderIdentity;
   id: string;
   sub: string;
   uid: string;
+  lifeUserId?: string;
+  vvaultUserId?: string;
+  supabaseUserId?: string;
   email: string;
   name: string;
   picture?: string;
   auth_provider: string;
+  /** Derived by AUTH from the registered browser app or OAuth client. */
+  relyingPartyId?: 'chatty' | 'chatty-cli' | 'vvault';
+  /** Signed inside the access token. Contains identity binding only, never DOB. */
+  actorAttestation?: ActorAttestationV1;
+  /** Additive, signed readiness evidence for VVAULT account-context projection. */
+  accountContextReadiness?: AccountContextReadinessV1;
+};
+
+export type AgeAssurance = 'adult' | 'minor' | 'unknown';
+
+export type ActorAttestationV1 = {
+  version: 'life-auth-actor-attestation/v1';
+  subject: string;
+  vvaultOwnerId: string;
+  issuer: 'quantum-auth';
+  ageAssurance?: AgeAssurance;
+};
+
+export type CanonicalOwnerEvidenceSource =
+  | 'ovvaults_user'
+  | 'cache'
+  | 'supabase_found'
+  | 'supabase_upserted'
+  | 'local_registry';
+
+export type AccountContextReadinessV1 = {
+  version: 'life-auth-account-context-readiness/v1';
+  ready: boolean;
+  subject: string;
+  reason: 'canonical_owner_verified' | 'canonical_owner_unverified';
+  vvaultOwnerId?: string;
+  evidenceSource?: CanonicalOwnerEvidenceSource;
+};
+
+export type AccountContextProfileV1 = {
+  displayName: string;
+  ageAssurance?: Exclude<AgeAssurance, 'unknown'>;
+};
+
+export type AccountContextAssertionV1 = {
+  version: 'life-auth-account-context-assertion/v1';
+  subject: string;
+  vvaultOwnerId: string;
+  issuer: string;
+  audience: 'vvault';
+  sessionId: string;
+  assertionId: string;
+  keyId: string;
+  issuedAt: number;
+  expiresAt: number;
+  accountContext: AccountContextProfileV1;
+};
+
+export type VvaultAccessScope =
+  | 'constructs:read'
+  | 'identity:read'
+  | 'knowledge:read'
+  | 'memory:read'
+  | 'transcripts:read'
+  | 'transcripts:append'
+  | 'work:read';
+
+export type VvaultAccessAssertionV2 = {
+  version: 'life-auth-vvault-access-assertion/v2';
+  subject: string;
+  vvaultOwnerId: string;
+  issuer: string;
+  audience: 'vvault';
+  sessionId: string;
+  assertionId: string;
+  keyId: string;
+  issuedAt: number;
+  expiresAt: number;
+  scopes: VvaultAccessScope[];
+  relyingPartyId: 'chatty' | 'chatty-cli';
 };
 
 export type SessionPayload = SessionUser & {
@@ -78,6 +174,8 @@ export type StoredUser = {
   lifeUserId?: string | null;
   /** Supabase `public.users.id` UUID string */
   supabaseUserId?: string | null;
+  /** Optional coarse assurance imported from an authorized verifier; never a birth date. */
+  ageAssurance?: AgeAssurance;
 };
 
 export type ProviderAccount = {
@@ -163,6 +261,7 @@ export type OAuthProviderClient = {
 export type StorageAdapter = {
   initialize: () => Promise<void>;
   findUserByEmail: (email: string) => Promise<StoredUser | null>;
+  findUserByLifeUserId?: (subject:string) => Promise<StoredUser | null>;
   findUserById: (id: string) => Promise<StoredUser | null>;
   findProviderAccount: (userId: string, provider: string) => Promise<ProviderAccount | null>;
   createCredentialUser: (input: CreateCredentialUserInput) => Promise<StoredUser>;
@@ -171,6 +270,7 @@ export type StorageAdapter = {
   upsertProviderAccountConnection: (input: UpsertProviderAccountConnectionInput) => Promise<ProviderAccount>;
   clearProviderAccountConnection: (userId: string, provider: string) => Promise<void>;
   replaceConsentAcceptances: (userId: string, appId: string, docs: ConsentAcceptance[]) => Promise<void>;
+  hasAcceptedConsentDocs?: (userId: string, appId: string, docs: {key:string;version:string}[]) => Promise<boolean>;
   hasAcceptedConsentKeys: (userId: string, appId: string, requiredKeys: string[]) => Promise<boolean>;
   updateUserLifeAnchors: (
     userId: string,
@@ -180,7 +280,7 @@ export type StorageAdapter = {
 };
 
 export type AppConfigStore = {
-  getConfig: () => Promise<AuthAppConfig>;
+  getConfig: (req?: any) => Promise<AuthAppConfig>;
 };
 
 export type TurnstileVerifier = (token: string, remoteIp: string | null) => Promise<boolean>;

@@ -59,7 +59,21 @@ async function postForm(url: string, body: URLSearchParams) {
     body,
   });
   if (!response.ok) {
-    throw new Error(`OAuth token exchange failed (${response.status})`);
+    const text = await response.text();
+    let providerError = '';
+    try {
+      const payload = JSON.parse(text) as { error?: unknown; error_description?: unknown };
+      const code = typeof payload.error === 'string' ? payload.error : '';
+      const description = typeof payload.error_description === 'string' ? payload.error_description : '';
+      providerError = [code, description].filter(Boolean).join(': ');
+    } catch {
+      providerError = text.slice(0, 160);
+    }
+    throw new Error(
+      providerError
+        ? `OAuth token exchange failed (${response.status}): ${providerError}`
+        : `OAuth token exchange failed (${response.status})`,
+    );
   }
   return response.json() as Promise<Record<string, unknown>>;
 }
@@ -93,6 +107,16 @@ function firstEnvValue(keys: string[]) {
   return '';
 }
 
+function firstEnvEntry(keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === 'string' && value.trim()) {
+      return { key, value: value.trim() };
+    }
+  }
+  return null;
+}
+
 function normalizeBaseUrl(value: string) {
   return value.replace(/\/+$/, '');
 }
@@ -110,24 +134,145 @@ export function resolveOAuthEnvPrefix(config?: AuthAppConfig) {
   return config?.oauth?.envPrefix?.trim() || config?.app?.id?.toUpperCase?.() || '';
 }
 
-export function resolveProviderCallbackUrl(provider: string, config?: AuthAppConfig) {
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, '');
+}
+
+function allowedOrigins(config?: AuthAppConfig) {
+  return new Set((config?.allowedOrigins || []).map(trimTrailingSlash));
+}
+
+function allowedCallbackUrl(url: string, config?: AuthAppConfig) {
+  if (!url) return false;
+  const allowed = allowedOrigins(config);
+  if (allowed.size === 0) return false;
+  try {
+    return allowed.has(trimTrailingSlash(new URL(url).origin));
+  } catch {
+    return false;
+  }
+}
+
+function callbackFromBase(provider: string, base: string, path = '') {
+  const rawCallbackPath = path || `/api/auth/${provider}/callback`;
+  const callbackPath = adaptCallbackPathForProvider(normalizeCallbackPath(rawCallbackPath), provider);
+  return `${normalizeBaseUrl(base)}${callbackPath}`;
+}
+
+export type OAuthCallbackResolution = {
+  callbackUrl: string;
+  source: string;
+  envKey?: string;
+  conflicts: string[];
+};
+
+export function resolveOAuthCallbackUrl(
+  provider: string,
+  config?: AuthAppConfig,
+  options: { requestOrigin?: string } = {},
+): OAuthCallbackResolution {
   const prefix = resolveOAuthEnvPrefix(config);
   const upperProvider = provider.toUpperCase();
-  const explicitCallbackUrl = firstEnvValue(candidateKeys(prefix, [
+
+  const conflicts: string[] = [];
+  const appSpecificCallback = firstEnvEntry(prefix ? [
     `${upperProvider}_CALLBACK_URL`,
     `${upperProvider}_CALLBACK`,
-  ]));
-  if (explicitCallbackUrl) return explicitCallbackUrl;
+  ].map((suffix) => `${prefix}_${suffix}`) : []);
+  if (appSpecificCallback) {
+    if (allowedCallbackUrl(appSpecificCallback.value, config)) {
+      return {
+        callbackUrl: appSpecificCallback.value,
+        source: 'app_specific_callback_env',
+        envKey: appSpecificCallback.key,
+        conflicts,
+      };
+    }
+    conflicts.push(`${appSpecificCallback.key} does not match an allowed app origin`);
+  }
 
-  const callbackBase = firstEnvValue(candidateKeys(prefix, ['PUBLIC_CALLBACK_BASE']));
-  if (!callbackBase) return '';
+  const appSpecificBase = firstEnvEntry(prefix ? [`${prefix}_PUBLIC_CALLBACK_BASE`] : []);
+  if (appSpecificBase) {
+    const appSpecificPath = firstEnvValue(prefix ? [
+      `${prefix}_${upperProvider}_CALLBACK_PATH`,
+      `${prefix}_CALLBACK_PATH`,
+    ] : []);
+    const callbackUrl = callbackFromBase(provider, appSpecificBase.value, appSpecificPath);
+    if (allowedCallbackUrl(callbackUrl, config)) {
+      return {
+        callbackUrl,
+        source: 'app_specific_public_callback_base',
+        envKey: appSpecificBase.key,
+        conflicts,
+      };
+    }
+    conflicts.push(`${appSpecificBase.key} builds a callback outside allowed app origins`);
+  }
 
-  const rawCallbackPath = firstEnvValue(candidateKeys(prefix, [
+  const requestOrigin = trimTrailingSlash(options.requestOrigin || '');
+  if (requestOrigin && allowedOrigins(config).has(requestOrigin)) {
+    return {
+      callbackUrl: `${requestOrigin}/api/auth/${provider}/callback`,
+      source: 'request_origin',
+      conflicts,
+    };
+  }
+
+  const genericCallback = firstEnvEntry([
+    `${upperProvider}_CALLBACK_URL`,
+    `${upperProvider}_CALLBACK`,
+  ]);
+  if (genericCallback) {
+    if (allowedCallbackUrl(genericCallback.value, config)) {
+      return {
+        callbackUrl: genericCallback.value,
+        source: 'generic_callback_env',
+        envKey: genericCallback.key,
+        conflicts,
+      };
+    }
+    conflicts.push(`${genericCallback.key} does not match an allowed app origin`);
+  }
+
+  const genericBase = firstEnvEntry(['PUBLIC_CALLBACK_BASE']);
+  if (genericBase) {
+    const genericPath = firstEnvValue([
     `${upperProvider}_CALLBACK_PATH`,
     'CALLBACK_PATH',
-  ])) || `/api/auth/${provider}/callback`;
-  const callbackPath = adaptCallbackPathForProvider(normalizeCallbackPath(rawCallbackPath), provider);
-  return `${normalizeBaseUrl(callbackBase)}${callbackPath}`;
+    ]);
+    const callbackUrl = callbackFromBase(provider, genericBase.value, genericPath);
+    if (allowedCallbackUrl(callbackUrl, config)) {
+      return {
+        callbackUrl,
+        source: 'generic_public_callback_base',
+        envKey: genericBase.key,
+        conflicts,
+      };
+    }
+    conflicts.push(`${genericBase.key} builds a callback outside allowed app origins`);
+  }
+
+  const backendCallback = firstEnvEntry(prefix ? [
+    `${prefix}_BACKEND_CALLBACK_URL`,
+    `${prefix}_${upperProvider}_BACKEND_CALLBACK_URL`,
+  ] : []);
+  if (backendCallback) {
+    if (allowedCallbackUrl(backendCallback.value, config)) {
+      return {
+        callbackUrl: backendCallback.value,
+        source: 'backend_callback_env',
+        envKey: backendCallback.key,
+        conflicts,
+      };
+    }
+    conflicts.push(`${backendCallback.key} is backend/internal and does not match an allowed app origin`);
+  }
+
+  return { callbackUrl: '', source: 'unconfigured', conflicts };
+}
+
+export function resolveProviderCallbackUrl(provider: string, config?: AuthAppConfig) {
+  return resolveOAuthCallbackUrl(provider, config).callbackUrl;
 }
 
 export function resolveProviderCredentials(provider: string, config?: AuthAppConfig) {
@@ -145,6 +290,39 @@ export function resolveProviderCredentials(provider: string, config?: AuthAppCon
   return { clientId, clientSecret, callbackUrl };
 }
 
+function hasUsableGoogleCredentials(clientId: string, clientSecret: string) {
+  const normalizedClientId = clientId.trim();
+  const normalizedClientSecret = clientSecret.trim();
+  return (
+    normalizedClientId.endsWith('.apps.googleusercontent.com')
+    && normalizedClientSecret.startsWith('GOCSPX-')
+    && normalizedClientSecret.length >= 30
+  );
+}
+
+export function resolveProviderCredentialEnv(provider: string, config?: AuthAppConfig) {
+  const prefix = resolveOAuthEnvPrefix(config);
+  const upperProvider = provider.toUpperCase();
+  const clientId = firstEnvEntry(candidateKeys(prefix, [
+    `${upperProvider}_CLIENT_ID`,
+    `${upperProvider}_OAUTH_CLIENT_ID`,
+  ]));
+  const clientSecret = firstEnvEntry(candidateKeys(prefix, [
+    `${upperProvider}_CLIENT_SECRET`,
+    `${upperProvider}_OAUTH_CLIENT_SECRET`,
+  ]));
+  const callback = resolveOAuthCallbackUrl(provider, config);
+  return {
+    clientId: { present: Boolean(clientId), key: clientId?.key },
+    clientSecret: { present: Boolean(clientSecret), key: clientSecret?.key },
+    callback: {
+      present: Boolean(callback.callbackUrl),
+      source: callback.source,
+      envKey: callback.envKey,
+    },
+  };
+}
+
 export function createGoogleProviderClient(config?: AuthAppConfig): OAuthProviderClient {
   const resolve = () => resolveProviderCredentials('google', config);
 
@@ -153,7 +331,7 @@ export function createGoogleProviderClient(config?: AuthAppConfig): OAuthProvide
     label: 'Continue with Google',
     isConfigured: () => {
       const { clientId, clientSecret } = resolve();
-      return Boolean(clientId && clientSecret);
+      return hasUsableGoogleCredentials(clientId, clientSecret);
     },
     buildAuthorizationUrl: ({ callbackUrl, state }: OAuthStartContext) => {
       const { clientId } = resolve();
