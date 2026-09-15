@@ -1,0 +1,28 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createEnrollmentConsent } from '../auth/enrollmentConsent.js';
+import { MemoryStorageAdapter } from '../persistence/memoryStorage.js';
+test('product consent requires exact versions and explicit signup; owner presence grants nothing', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.initialize();
+    const user = await storage.upsertOAuthUser({ provider: 'google', providerUserId: 'fixture', email: 'fixture@example.test', displayName: 'Fixture', profile: {} });
+    const docs = [{ key: 'chatty:terms', version: 'fixture-v2', label: 'Terms', url: 'https://fixture.test/terms', required: true }];
+    const check = createEnrollmentConsent(storage, { getConfig: async () => ({ app: { id: 'chatty', name: 'Chatty' }, docs }) });
+    await storage.updateUserLifeAnchors(user.id, 'life-subject', null);
+    const session = { sub: 'life-subject', id: 'life-subject', relyingPartyId: 'chatty', vvaultUserId: '11111111-1111-4111-8111-111111111111' };
+    assert.equal((await check(session, {}, false)).required, true);
+    const accepted = { consent: { 'chatty:terms': true }, consentVersions: { 'chatty:terms': 'fixture-v2' } };
+    assert.equal((await check(session, accepted, false)).required, true);
+    assert.equal((await check(session, { ...accepted, consentVersions: { 'chatty:terms': 'fixture-v1' } }, true)).required, true);
+    assert.equal((await check(session, accepted, true)).required, false);
+    assert.equal((await check(session, {}, false)).required, false);
+    docs[0].version = 'fixture-v3';
+    assert.equal((await check(session, {}, false)).required, true);
+    const unknown = { ...session, sub: 'different' };
+    await assert.rejects(check(unknown, accepted, true), { code: 'AUTHENTICATION_REQUIRED' });
+    const duplicate = await storage.upsertOAuthUser({ provider: 'google', providerUserId: 'other', email: 'other@example.test', displayName: 'Other', profile: {} });
+    await storage.updateUserLifeAnchors(duplicate.id, 'life-subject', null);
+    await assert.rejects(check(session, {}, false), { code: 'AUTHENTICATION_REQUIRED' });
+    docs.length = 0;
+    await assert.rejects(check(session, {}, false), { code: 'PRODUCT_CONSENT_POLICY_UNAVAILABLE' });
+});
