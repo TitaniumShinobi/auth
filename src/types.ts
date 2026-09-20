@@ -20,6 +20,7 @@ export type AuthProviderDefinition = {
   provider: AuthProviderId;
   label: string;
   enabled: boolean;
+  callbackUrl?: string;
 };
 
 export type AuthProviderConfig = AuthProviderDefinition & {

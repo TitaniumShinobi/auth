@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import type { AppConfigStore, AuthAppConfig, OAuthProviderClient } from '../types.js';
 import type { LifeProfileResult, ResolveLifeProfileInput } from '../lifeProfile.js';
 import { createAuthApp } from '../app.js';
+import { FileAppConfigStore } from '../config.js';
 import { hashPassword } from '../auth/passwords.js';
+import { resolveProviderCallbackUrl } from '../auth/oauth.js';
 import { MemoryStorageAdapter } from '../persistence/memoryStorage.js';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const TEST_CONFIG: AuthAppConfig = {
   app: {
@@ -53,6 +60,7 @@ class StaticConfigStore implements AppConfigStore {
 async function withServer(
   options: {
     config?: AuthAppConfig;
+    configStore?: AppConfigStore;
     providers?: Record<string, OAuthProviderClient>;
     turnstileVerifier?: (token: string) => Promise<boolean>;
     resolveLifeProfile?: (input: ResolveLifeProfileInput) => Promise<LifeProfileResult>;
@@ -64,7 +72,7 @@ async function withServer(
   const storage = new MemoryStorageAdapter();
   const app = await createAuthApp({
     storage,
-    configStore: new StaticConfigStore(options.config || TEST_CONFIG),
+    configStore: options.configStore || new StaticConfigStore(options.config || TEST_CONFIG),
     providers: options.providers,
     turnstileVerifier: options.turnstileVerifier as any,
     resolveLifeProfile: options.resolveLifeProfile,
@@ -90,6 +98,94 @@ async function withServer(
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
+
+test('keeps legacy config selectors while the proxy app id deterministically selects GRID', async () => {
+  const configPaths = ['code.json', 'chatty.json', 'vvault.json', 'grid.json']
+    .map((name) => path.join(repoRoot, 'config', name));
+  const configStore = new FileAppConfigStore(configPaths);
+
+  await withServer({ configStore }, async ({ baseUrl }) => {
+    const select = async (pathName: string, headers: Record<string, string>) => {
+      const response = await fetch(`${baseUrl}${pathName}`, { headers });
+      const payload = await response.json() as { app?: { id?: string }; error?: string };
+      return { response, payload };
+    };
+
+    const proxyWins = await select('/api/auth/config?app=chatty', {
+      'X-Auth-App-Id': 'grid',
+      Origin: 'https://grid.thewreck.org',
+    });
+    assert.equal(proxyWins.response.status, 200);
+    assert.equal(proxyWins.payload.app?.id, 'grid');
+
+    const chatty = await select('/api/auth/config?app=chatty', {});
+    assert.equal(chatty.response.status, 200);
+    assert.equal(chatty.payload.app?.id, 'chatty');
+
+    const vvault = await select('/api/auth/config', { Origin: 'https://vvault.thewreck.org' });
+    assert.equal(vvault.response.status, 200);
+    assert.equal(vvault.payload.app?.id, 'vvault');
+
+    const referer = await select('/api/auth/config', { Referer: 'http://localhost:5173/login' });
+    assert.equal(referer.response.status, 200);
+    assert.equal(referer.payload.app?.id, 'chatty');
+
+    const code = await select('/api/auth/config', { 'X-Auth-App-Id': 'code' });
+    assert.equal(code.response.status, 200);
+    assert.equal(code.payload.app?.id, 'code');
+
+    const unknown = await select('/api/auth/config?app=unknown', {});
+    assert.equal(unknown.response.status, 403);
+    assert.equal(unknown.payload.error, 'AUTH_CONFIG_NOT_FOUND');
+  });
+
+  assert.equal((await configStore.getConfig({ query: { appId: 'chatty' } })).app.id, 'chatty');
+  assert.equal((await configStore.getConfig({ query: { consumer: 'vvault' } })).app.id, 'vvault');
+  assert.equal((await configStore.getConfig({ body: { product_id: 'code' } })).app.id, 'code');
+  assert.equal((await configStore.getConfig({ query: { origin: 'http://localhost:5173' } })).app.id, 'chatty');
+
+  const gridConfig = JSON.parse(await readFile(path.join(repoRoot, 'config', 'grid.json'), 'utf8')) as AuthAppConfig;
+  assert.equal(
+    resolveProviderCallbackUrl('github', gridConfig),
+    'https://grid.thewreck.org/api/auth/github/callback',
+  );
+});
+
+test('binds hosted native sign-in to the pending GRID authorization request', async () => {
+  const configStore = new FileAppConfigStore(['code.json', 'chatty.json', 'vvault.json', 'grid.json']
+    .map((name) => path.join(repoRoot, 'config', name)));
+  const github: OAuthProviderClient = {
+    provider: 'github',
+    label: 'Continue with GitHub',
+    isConfigured: () => true,
+    buildAuthorizationUrl: () => 'https://github.com/login/oauth/authorize',
+    exchangeCodeForProfile: async () => { throw new Error('not used'); },
+  };
+  await withServer({ configStore, providers: { github } }, async ({ baseUrl }) => {
+    const authorize = new URL('/oauth/authorize', baseUrl);
+    authorize.searchParams.set('response_type', 'code');
+    authorize.searchParams.set('client_id', 'grid-windows');
+    authorize.searchParams.set('redirect_uri', 'http://127.0.0.1:49152/grid-natives-callback');
+    authorize.searchParams.set('state', 's'.repeat(32));
+    authorize.searchParams.set('code_challenge', 'c'.repeat(43));
+    authorize.searchParams.set('code_challenge_method', 'S256');
+    const response = await fetch(authorize, { headers: { 'X-Auth-App-Id': 'grid' }, redirect: 'manual' });
+    assert.equal(response.status, 302);
+    const login = new URL(response.headers.get('location')!);
+    const requestId = login.searchParams.get('authorization_request')!;
+    const signin = await fetch(`${baseUrl}/signin?authorization_request=${encodeURIComponent(requestId)}&authorization_return=${encodeURIComponent(login.searchParams.get('authorization_return')!)}`, {
+      headers: { 'X-Auth-App-Id': 'grid' },
+    });
+    assert.equal(signin.status, 200);
+    assert.equal(signin.headers.get('cache-control'), 'no-store');
+    assert.match(signin.headers.get('content-security-policy') || '', /default-src 'none'/);
+    assert.match(await signin.text(), /GRID Terms of Service/);
+    const wrongApp = await fetch(`${baseUrl}/signin?authorization_request=${encodeURIComponent(requestId)}`, {
+      headers: { 'X-Auth-App-Id': 'code' },
+    });
+    assert.equal(wrongApp.status, 400);
+  });
+});
 
 test('registers a user and rejects duplicate email', async () => {
   await withServer({}, async ({ baseUrl }) => {

@@ -1,0 +1,32 @@
+﻿{
+    "origin":  "https://grid.thewreck.org",
+    "documents":  [
+                      {
+                          "key":  "grid_terms_v1",
+                          "title":  "GRID Terms of Service",
+                          "file":  "GRID_TERMS_OF_SERVICE.md",
+                          "sha256":  "f95742205defafbac03e2c183d7b7f2f2b6ac5b6f315936562193bdbe7e130f5",
+                          "bytes":  5732,
+                          "publicUrl":  "https://grid.thewreck.org/legal/terms",
+                          "required":  true
+                      },
+                      {
+                          "key":  "grid_privacy_v1",
+                          "title":  "GRID Privacy Notice",
+                          "file":  "GRID_PRIVACY_NOTICE.md",
+                          "sha256":  "662e95280750e8adaae1588b173d6cc0e043c23daf0e5010c61f513df653d787",
+                          "bytes":  6842,
+                          "publicUrl":  "https://grid.thewreck.org/legal/privacy",
+                          "required":  true
+                      },
+                      {
+                          "key":  "grid_eeccd_v1",
+                          "title":  "GRID European Electronic Communications Code Disclosure",
+                          "file":  "GRID_EUROPEAN_ELECTRONIC_COMMUNICATIONS_CODE_DISCLOSURE.md",
+                          "sha256":  "ca4c3af5b483664cc906a99effd399d6fe5ced808630997caf2d813e75b1673c",
+                          "bytes":  5314,
+                          "publicUrl":  "https://grid.thewreck.org/legal/eeccd",
+                          "required":  true
+                      }
+                  ]
+}
