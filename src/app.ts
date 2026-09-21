@@ -148,6 +148,11 @@ type AuthenticatedUserContext = AuthenticatedSession & {
   user: StoredUser;
 };
 
+type NativeAuthorizationRequestRecord = AuthorizationRequestRecord & {
+  nativeProvider?: string;
+  acceptedRequiredConsentDocs?: ConsentAcceptance[];
+};
+
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, '');
 }
@@ -1712,7 +1717,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
   }
 
   async function completeAuthorization(req: any, res: any, requestId: string, browserBinding?: string) {
-    const record = await ephemeralStore.takeJson<AuthorizationRequestRecord>(authorizationRequestKey(requestId));
+    const record = await ephemeralStore.takeJson<NativeAuthorizationRequestRecord>(authorizationRequestKey(requestId));
     if (!record || Date.now() - record.createdAt > AUTHORIZATION_REQUEST_TTL_SECONDS * 1000) {
       return oauthError(res, 400, 'invalid_request', 'Authorization request is invalid or expired');
     }
@@ -1732,7 +1737,11 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
           createFederationBrowserBindingCookie(req, requestId, browserBinding),
         );
       }
-      const loginUrl = record.identityAuthority==='vvault' ? new URL('/api/auth/chatty/authorize',process.env.AUTH_ENROLLMENT_AUTHORITY_ORIGIN) : new URL(client.authorizationUiUrl);
+      const loginUrl = record.identityAuthority==='vvault'
+        ? new URL('/api/auth/chatty/authorize',process.env.AUTH_ENROLLMENT_AUTHORITY_ORIGIN)
+        : record.nativeProvider
+          ? new URL(`/api/auth/${encodeURIComponent(record.nativeProvider)}`, resolveHostedOrigin(req))
+          : new URL(client.authorizationUiUrl);
       loginUrl.searchParams.set('authorization_request', requestId);
       loginUrl.searchParams.set('authorization_return', `${resolveAuthorizationOrigin()}/oauth/authorize/complete`);
       return res.redirect(loginUrl.toString());
@@ -1765,6 +1774,23 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     if(req.query.identity_authority==='vvault'){
       try {const authority=new URL(process.env.AUTH_ENROLLMENT_AUTHORITY_ORIGIN || '');if(config.app.id!=='chatty'||clientId!=='chatty-web-link'||authority.username||authority.password||authority.origin!==String(process.env.AUTH_ENROLLMENT_AUTHORITY_ORIGIN).replace(/\/$/,'')||(authority.protocol!=='https:'&&!(authority.protocol==='http:'&&['localhost','127.0.0.1'].includes(authority.hostname))))return oauthError(res,400,'invalid_identity_authority');}catch{return oauthError(res,503,'identity_authority_unavailable');}
     }
+    const requestedProvider = String(req.query.provider || '').trim().toLowerCase();
+    if (requestedProvider) {
+      const configuredProvider = config.providers.find((provider) => provider.provider === requestedProvider);
+      const providerClient = resolveProviderClients(config, options.providers)[requestedProvider];
+      if (!configuredProvider || !configuredProvider.enabled || !providerClient?.isConfigured()) {
+        return oauthError(res, 503, 'provider_not_configured');
+      }
+    }
+    const acceptedRequiredConsentDocs = req.query.accept_required_consent === 'true'
+      ? requiredConsentDocs(config).map<ConsentAcceptance>((doc) => ({
+          key: doc.key,
+          version: doc.version,
+          label: doc.label,
+          url: doc.url,
+          acceptedAt: new Date().toISOString(),
+        }))
+      : undefined;
     const requestId = crypto.randomBytes(32).toString('base64url');
     const browserBinding = crypto.randomBytes(32).toString('base64url');
     await ephemeralStore.setJson(authorizationRequestKey(requestId), {
@@ -1776,9 +1802,11 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       scope: requestedScope,
       createdAt: Date.now(),
       federationBrowserBindingHash: hashFederationBrowserBinding(requestId, browserBinding),
+      ...(requestedProvider ? { nativeProvider: requestedProvider } : {}),
+      ...(acceptedRequiredConsentDocs ? { acceptedRequiredConsentDocs } : {}),
       ...(req.query.prompt === 'login' ? {forceReauthentication:true} : {}),
       ...(req.query.identity_authority==='vvault' && config.app.id==='chatty' && clientId==='chatty-web-link' ? {identityAuthority:'vvault' as const} : {}),
-    } satisfies AuthorizationRequestRecord, AUTHORIZATION_REQUEST_TTL_SECONDS);
+    } satisfies NativeAuthorizationRequestRecord, AUTHORIZATION_REQUEST_TTL_SECONDS);
     return completeAuthorization(req, res, requestId, browserBinding);
   });
 
@@ -2955,7 +2983,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     const origin = originSelection.origin || config.allowedOrigins[0] || new URL(callbackUrl).origin;
     const authorizationRequestId = String(req.query.authorization_request || '');
     if (authorizationRequestId) {
-      const pending = await ephemeralStore.getJson<AuthorizationRequestRecord>(authorizationRequestKey(authorizationRequestId));
+      const pending = await ephemeralStore.getJson<NativeAuthorizationRequestRecord>(authorizationRequestKey(authorizationRequestId));
       const expectedReturn = `${resolveAuthorizationOrigin()}/oauth/authorize/complete`;
       if (!pending || pending.appId !== config.app.id || String(req.query.authorization_return || '') !== expectedReturn) {
         return res.status(400).json({ ok: false, error: 'INVALID_AUTHORIZATION_REQUEST' });
@@ -3067,7 +3095,19 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         avatarUrl: profile.avatarUrl || null,
         profile: profile.raw,
       });
-      const hasRequiredConsent = await hasRequiredConsentForApp(storage, config, user.id);
+      let hasRequiredConsent = await hasRequiredConsentForApp(storage, config, user.id);
+      if (!hasRequiredConsent && stateRecord.authorizationRequestId) {
+        const pending = await ephemeralStore.getJson<NativeAuthorizationRequestRecord>(authorizationRequestKey(stateRecord.authorizationRequestId));
+        const acceptedDocs = pending?.acceptedRequiredConsentDocs;
+        const currentRequired = requiredConsentDocs(config);
+        const acceptedCurrentRequired = Boolean(acceptedDocs)
+          && acceptedDocs!.length === currentRequired.length
+          && currentRequired.every((doc) => acceptedDocs!.some((accepted) => accepted.key === doc.key && accepted.version === doc.version));
+        if (acceptedCurrentRequired) {
+          await storage.replaceConsentAcceptances(user.id, config.app.id, acceptedDocs!);
+          hasRequiredConsent = true;
+        }
+      }
       // The subject comes only from the current successful provider exchange.
       const providerIdentity: VerifiedProviderIdentity | undefined = providerId === 'google' || providerId === 'github'
         ? { provider: providerId, subject: profile.providerUserId, issuer: providerId === 'google' ? 'https://accounts.google.com' : 'https://github.com', ...(providerId === 'google' && profile.raw?.email_verified === true ? {verifiedEmail:profile.email} : {}) }
