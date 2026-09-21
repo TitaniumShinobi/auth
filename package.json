@@ -3,13 +3,34 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "auth": "bin/auth"
+  },
   "scripts": {
-    "build": "node ../code/node_modules/typescript/bin/tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "dev": "npm run build && npm run start",
-    "test": "npm run build && node --test dist/test/auth.test.js dist/test/oauth.test.js dist/test/githubBrowse.test.js"
+    "build": "bin/node20 node_modules/typescript/bin/tsc -p tsconfig.json",
+    "start": "bin/node20 dist/index.js",
+    "dev": "bin/npm20 run build && bin/npm20 run start",
+    "auth": "bin/auth",
+    "prisma:generate": "bin/node20 node_modules/prisma/build/index.js generate",
+    "prisma:migrate": "bin/node20 node_modules/prisma/build/index.js migrate deploy",
+    "test": "bin/npm20 run test:wizard && bin/npm20 run build && bin/node20 --test dist/test/auth.test.js dist/test/oauth.test.js dist/test/githubBrowse.test.js dist/test/authorizationCode.test.js dist/test/startup.test.js dist/test/providerOwnerFlow.test.js dist/test/ownerDatasourceKeychain.test.js",
+    "test:startup": "bin/npm20 run build && bin/node20 --test dist/test/startup.test.js",
+    "test:wizard": "bin/node20 --test src/test/auth-wizard.test.mjs src/test/auth-lifecycle.test.mjs scripts/auth-cli.test.mjs src/test/auth-welcome.test.mjs src/test/auth-blocker-handoff.test.mjs src/test/auth-evidence-ownership.test.mjs src/test/auth-verification-profiles.test.mjs src/test/auth-assertion-repair.test.mjs src/test/canonical-owner.test.mjs src/test/provider-identity-tokens.test.mjs src/test/product-session-provider-proof.test.mjs src/test/enrollment-handoff.test.mjs src/test/enrollment-wizard.test.mjs",
+    "test:conformance": "bin/node20 --test src/test/auth-conformance-fixture.test.mjs",
+    "test:assertion-repair": "bin/node20 --test src/test/auth-assertion-repair.test.mjs src/test/canonical-owner.test.mjs src/test/provider-identity-tokens.test.mjs src/test/product-session-provider-proof.test.mjs",
+    "test:enrollment": "bin/node20 --test src/test/enrollment-handoff.test.mjs src/test/enrollment-wizard.test.mjs"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "@prisma/client": "^6.19.0",
+    "express": "^5.1.0",
+    "has-flag": "^4.0.0",
+    "jose": "^6.1.2",
+    "redis": "^5.10.0",
+    "supports-color": "^7.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "prisma": "^6.19.0",
+    "typescript": "^6.0.3"
   }
 }

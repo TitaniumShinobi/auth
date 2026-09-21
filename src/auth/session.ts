@@ -51,34 +51,13 @@ export function parseCookieHeader(headerValue: string | undefined): Record<strin
   }, {});
 }
 
-type SessionCookieOptions =
-  | boolean
-  | {
-      secure?: boolean;
-      domain?: string | null;
-    };
-
-function normalizeSessionCookieOptions(options: SessionCookieOptions) {
-  if (typeof options === 'boolean') {
-    return {
-      secure: options,
-      domain: null,
-    };
-  }
-
-  return {
-    secure: options?.secure === true,
-    domain: typeof options?.domain === 'string' && options.domain.trim() ? options.domain.trim() : null,
-  };
-}
-
 export function createSetCookieHeader(
   name: string,
   value: string,
   maxAgeSeconds: number,
-  options: SessionCookieOptions,
+  secure: boolean,
+  domain?: string | null,
 ) {
-  const cookieOptions = normalizeSessionCookieOptions(options);
   const parts = [
     `${name}=${encodeURIComponent(value)}`,
     'Path=/',
@@ -86,16 +65,12 @@ export function createSetCookieHeader(
     'SameSite=Lax',
     `Max-Age=${maxAgeSeconds}`,
   ];
-  if (cookieOptions.domain) parts.push(`Domain=${cookieOptions.domain}`);
-  if (cookieOptions.secure) parts.push('Secure');
+  if (domain) parts.push(`Domain=${domain}`);
+  if (secure) parts.push('Secure');
   return parts.join('; ');
 }
 
-export function createClearCookieHeader(
-  name: string,
-  options: SessionCookieOptions,
-) {
-  const cookieOptions = normalizeSessionCookieOptions(options);
+export function createClearCookieHeader(name: string, secure: boolean, domain?: string | null) {
   const parts = [
     `${name}=`,
     'Path=/',
@@ -103,7 +78,7 @@ export function createClearCookieHeader(
     'SameSite=Lax',
     'Max-Age=0',
   ];
-  if (cookieOptions.domain) parts.push(`Domain=${cookieOptions.domain}`);
-  if (cookieOptions.secure) parts.push('Secure');
+  if (domain) parts.push(`Domain=${domain}`);
+  if (secure) parts.push('Secure');
   return parts.join('; ');
 }
