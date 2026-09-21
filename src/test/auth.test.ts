@@ -2150,3 +2150,81 @@ test('records consent for an authenticated session through the hosted auth surfa
     assert.equal(payload.user?.email, 'consent@example.com');
   });
 });
+
+test('live-lineage GRID routing and hosted native authorization preserve existing selectors', async () => {
+  const configStore = new FileAppConfigStore([
+    'code.json',
+    'chatty.json',
+    'vvault.json',
+    'grid.json',
+  ].map((name) => path.join(repoRoot, 'config', name)));
+  const github: OAuthProviderClient = {
+    provider: 'github',
+    label: 'Continue with GitHub',
+    isConfigured: () => true,
+    buildAuthorizationUrl: ({ callbackUrl, state }) => {
+      const url = new URL('https://github.com/login/oauth/authorize');
+      url.searchParams.set('redirect_uri', callbackUrl);
+      url.searchParams.set('state', state);
+      return url.toString();
+    },
+    exchangeCodeForProfile: async () => { throw new Error('not used'); },
+  };
+
+  await withServer({ configStore, providers: { github } }, async ({ baseUrl }) => {
+    const responseFor = async (pathName: string, headers: Record<string, string>) => {
+      const response = await fetch(`${baseUrl}${pathName}`, { headers, redirect: 'manual' });
+      return { response, body: await response.json() as { app?: { id?: string }; error?: string } };
+    };
+
+    const trustedProxyWins = await responseFor('/api/auth/config?app=chatty', {
+      'X-Auth-App-Id': 'grid',
+      Origin: 'https://grid.thewreck.org',
+    });
+    assert.equal(trustedProxyWins.response.status, 200);
+    assert.equal(trustedProxyWins.body.app?.id, 'grid');
+
+    const chatty = await responseFor('/api/auth/config?app=chatty', {});
+    assert.equal(chatty.response.status, 200);
+    assert.equal(chatty.body.app?.id, 'chatty');
+
+    const vvault = await responseFor('/api/auth/config', { Origin: 'http://localhost:7784' });
+    assert.equal(vvault.response.status, 200);
+    assert.equal(vvault.body.app?.id, 'vvault');
+
+    const unknown = await responseFor('/api/auth/config?app=not-a-product', {});
+    assert.equal(unknown.response.status, 403);
+    assert.equal(unknown.body.error, 'AUTH_CONFIG_NOT_FOUND');
+
+    const providerStart = await fetch(`${baseUrl}/api/auth/github`, {
+      headers: { 'X-Auth-App-Id': 'grid', Origin: 'https://grid.thewreck.org' },
+      redirect: 'manual',
+    });
+    assert.equal(providerStart.status, 302);
+    assert.equal(
+      new URL(providerStart.headers.get('location') || '').searchParams.get('redirect_uri'),
+      'https://grid.thewreck.org/api/auth/github/callback',
+    );
+
+    const authorize = new URL('/oauth/authorize', baseUrl);
+    authorize.searchParams.set('response_type', 'code');
+    authorize.searchParams.set('client_id', 'grid-windows');
+    authorize.searchParams.set('redirect_uri', 'http://127.0.0.1:49152/grid-natives-callback');
+    authorize.searchParams.set('state', 's'.repeat(32));
+    authorize.searchParams.set('code_challenge', 'c'.repeat(43));
+    authorize.searchParams.set('code_challenge_method', 'S256');
+    const authorizeResponse = await fetch(authorize, {
+      headers: { 'X-Auth-App-Id': 'grid' },
+      redirect: 'manual',
+    });
+    assert.equal(authorizeResponse.status, 302);
+    const signinUrl = new URL(authorizeResponse.headers.get('location') || '');
+    const signin = await fetch(`${baseUrl}${signinUrl.pathname}${signinUrl.search}`, {
+      headers: { 'X-Auth-App-Id': 'grid' },
+    });
+    assert.equal(signin.status, 200);
+    assert.equal(signin.headers.get('cache-control'), 'no-store');
+    assert.match(signin.headers.get('content-security-policy') || '', /default-src 'none'/);
+    assert.match(await signin.text(), /GRID Terms of Service/);
+  });
+});

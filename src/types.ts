@@ -36,6 +36,8 @@ export type AuthProviderDefinition = {
   provider: AuthProviderId;
   label: string;
   enabled: boolean;
+  /** Optional provider callback pinned to this product's allowed origin. */
+  callbackUrl?: string;
   type?: 'oauth2' | 'oidc';
   clientIdEnv?: string;
   clientSecretEnv?: string;

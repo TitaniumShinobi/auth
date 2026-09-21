@@ -194,6 +194,16 @@ export function resolveOAuthCallbackUrl(
   const upperProvider = provider.toUpperCase();
 
   const conflicts: string[] = [];
+  const configuredCallbackUrl = config?.providers
+    .find((candidate) => candidate.provider.toLowerCase() === provider.toLowerCase())
+    ?.callbackUrl;
+  if (configuredCallbackUrl) {
+    if (allowedCallbackUrl(configuredCallbackUrl, config)) {
+      return { callbackUrl: configuredCallbackUrl, source: 'app_config', conflicts };
+    }
+    conflicts.push('Configured provider callback does not match an allowed app origin');
+  }
+
   const appSpecificCallback = firstEnvEntry(prefix ? [
     `${upperProvider}_CALLBACK_URL`,
     `${upperProvider}_CALLBACK`,
