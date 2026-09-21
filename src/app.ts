@@ -3096,9 +3096,10 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         profile: profile.raw,
       });
       let hasRequiredConsent = await hasRequiredConsentForApp(storage, config, user.id);
+      let nativePending: NativeAuthorizationRequestRecord | null = null;
       if (!hasRequiredConsent && stateRecord.authorizationRequestId) {
-        const pending = await ephemeralStore.getJson<NativeAuthorizationRequestRecord>(authorizationRequestKey(stateRecord.authorizationRequestId));
-        const acceptedDocs = pending?.acceptedRequiredConsentDocs;
+        nativePending = await ephemeralStore.getJson<NativeAuthorizationRequestRecord>(authorizationRequestKey(stateRecord.authorizationRequestId));
+        const acceptedDocs = nativePending?.acceptedRequiredConsentDocs;
         const currentRequired = requiredConsentDocs(config);
         const acceptedCurrentRequired = Boolean(acceptedDocs)
           && acceptedDocs!.length === currentRequired.length
@@ -3113,6 +3114,13 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         ? { provider: providerId, subject: profile.providerUserId, issuer: providerId === 'google' ? 'https://accounts.google.com' : 'https://github.com', ...(providerId === 'google' && profile.raw?.email_verified === true ? {verifiedEmail:profile.email} : {}) }
         : undefined;
       const sessionUser = await buildSessionForUser(user, providerIdentity);
+      if (!hasRequiredConsent && nativePending) {
+        const nativeReturn = new URL(nativePending.redirectUri);
+        nativeReturn.searchParams.set('error', 'enrollment_required');
+        nativeReturn.searchParams.set('state', nativePending.state);
+        nativeReturn.searchParams.set('error_description', `Complete ${config.app.name} signup before signing in.`);
+        return res.redirect(nativeReturn.toString());
+      }
       const tokens = await issueTokenPairForUser(req, config, user, sessionUser);
       if (!hasRequiredConsent) {
         res.setHeader('Set-Cookie', createHostedTokenCookies(req, cookieName, refreshCookieName, tokens, tokenConfig));
