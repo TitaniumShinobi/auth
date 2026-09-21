@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import type { AppConfigStore, AuthAppConfig, OAuthProviderClient } from '../types.js';
 import type { LifeProfileResult, ResolveLifeProfileInput } from '../lifeProfile.js';
 import { createAuthApp } from '../app.js';
+import { FileAppConfigStore } from '../config.js';
 import { hashPassword } from '../auth/passwords.js';
 import { MemoryStorageAdapter } from '../persistence/memoryStorage.js';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const TEST_CONFIG: AuthAppConfig = {
   app: {
@@ -53,6 +58,7 @@ class StaticConfigStore implements AppConfigStore {
 async function withServer(
   options: {
     config?: AuthAppConfig;
+    configStore?: AppConfigStore;
     providers?: Record<string, OAuthProviderClient>;
     turnstileVerifier?: (token: string) => Promise<boolean>;
     resolveLifeProfile?: (input: ResolveLifeProfileInput) => Promise<LifeProfileResult>;
@@ -64,7 +70,7 @@ async function withServer(
   const storage = new MemoryStorageAdapter();
   const app = await createAuthApp({
     storage,
-    configStore: new StaticConfigStore(options.config || TEST_CONFIG),
+    configStore: options.configStore || new StaticConfigStore(options.config || TEST_CONFIG),
     providers: options.providers,
     turnstileVerifier: options.turnstileVerifier as any,
     resolveLifeProfile: options.resolveLifeProfile,
@@ -831,5 +837,128 @@ test('redirects OAuth callback to signup when product consent is missing', async
     assert.equal(callback.headers.get('location'), 'http://localhost:2048/?authModal=signup&reason=missing_consent');
     const setCookie = (callback.headers as any).getSetCookie?.()[0] || callback.headers.get('set-cookie');
     assert.equal(setCookie, null);
+  });
+});
+
+test('live-lineage GRID routing and hosted native authorization preserve existing selectors', async () => {
+  const configStore = new FileAppConfigStore([
+    'code.json',
+    'chatty.json',
+    'vvault.json',
+    'grid.json',
+  ].map((name) => path.join(repoRoot, 'config', name)));
+  const github: OAuthProviderClient = {
+    provider: 'github',
+    label: 'Continue with GitHub',
+    isConfigured: () => true,
+    buildAuthorizationUrl: ({ callbackUrl, state }) => {
+      const url = new URL('https://github.com/login/oauth/authorize');
+      url.searchParams.set('redirect_uri', callbackUrl);
+      url.searchParams.set('state', state);
+      return url.toString();
+    },
+    exchangeCodeForProfile: async () => ({
+      providerUserId: 'grid-github-user',
+      email: 'grid@example.test',
+      displayName: 'GRID Test User',
+      raw: { id: 'grid-github-user' },
+    }),
+  };
+
+  await withServer({ configStore, providers: { github } }, async ({ baseUrl }) => {
+    const responseFor = async (pathName: string, headers: Record<string, string>) => {
+      const response = await fetch(`${baseUrl}${pathName}`, { headers, redirect: 'manual' });
+      return { response, body: await response.json() as { app?: { id?: string }; error?: string } };
+    };
+
+    const trustedProxyWins = await responseFor('/api/auth/config?app=chatty', {
+      'X-Auth-App-Id': 'grid',
+      Origin: 'https://grid.thewreck.org',
+    });
+    assert.equal(trustedProxyWins.response.status, 200);
+    assert.equal(trustedProxyWins.body.app?.id, 'grid');
+
+    const chatty = await responseFor('/api/auth/config?app=chatty', {});
+    assert.equal(chatty.response.status, 200);
+    assert.equal(chatty.body.app?.id, 'chatty');
+
+    const vvault = await responseFor('/api/auth/config', { Origin: 'http://localhost:7784' });
+    assert.equal(vvault.response.status, 200);
+    assert.equal(vvault.body.app?.id, 'vvault');
+
+    const unknown = await responseFor('/api/auth/config?app=not-a-product', {});
+    assert.equal(unknown.response.status, 403);
+    assert.equal(unknown.body.error, 'AUTH_CONFIG_NOT_FOUND');
+
+    const providerStart = await fetch(`${baseUrl}/api/auth/github`, {
+      headers: { 'X-Auth-App-Id': 'grid', Origin: 'https://grid.thewreck.org' },
+      redirect: 'manual',
+    });
+    assert.equal(providerStart.status, 302);
+    assert.equal(
+      new URL(providerStart.headers.get('location') || '').searchParams.get('redirect_uri'),
+      'https://grid.thewreck.org/api/auth/github/callback',
+    );
+
+    const authorize = new URL('/oauth/authorize', baseUrl);
+    authorize.searchParams.set('response_type', 'code');
+    authorize.searchParams.set('client_id', 'grid-windows');
+    authorize.searchParams.set('redirect_uri', 'http://127.0.0.1:49152/grid-natives-callback');
+    authorize.searchParams.set('state', 's'.repeat(32));
+    authorize.searchParams.set('code_challenge', 'c'.repeat(43));
+    authorize.searchParams.set('code_challenge_method', 'S256');
+    const authorizeResponse = await fetch(authorize, {
+      headers: { 'X-Auth-App-Id': 'grid' },
+      redirect: 'manual',
+    });
+    assert.equal(authorizeResponse.status, 302);
+    const signinUrl = new URL(authorizeResponse.headers.get('location') || '');
+    const signin = await fetch(`${baseUrl}${signinUrl.pathname}${signinUrl.search}`, {
+      headers: { 'X-Auth-App-Id': 'grid' },
+    });
+    assert.equal(signin.status, 200);
+    assert.equal(signin.headers.get('cache-control'), 'no-store');
+    assert.match(signin.headers.get('content-security-policy') || '', /default-src 'none'/);
+    assert.match(await signin.text(), /GRID Terms of Service/);
+
+    const providerForAuthorization = await fetch(
+      `${baseUrl}/api/auth/github?authorization_request=${encodeURIComponent(signinUrl.searchParams.get('authorization_request') || '')}&authorization_return=${encodeURIComponent('http://localhost:1111/oauth/authorize/complete')}`,
+      { headers: { 'X-Auth-App-Id': 'grid' }, redirect: 'manual' },
+    );
+    const providerState = new URL(providerForAuthorization.headers.get('location') || '').searchParams.get('state');
+    assert.ok(providerState);
+    const providerCallback = await fetch(
+      `${baseUrl}/api/auth/github/callback?code=grid-test-code&state=${encodeURIComponent(providerState as string)}`,
+      { headers: { 'X-Auth-App-Id': 'grid' }, redirect: 'manual' },
+    );
+    assert.equal(providerCallback.status, 302);
+    const consentUrl = new URL(providerCallback.headers.get('location') || '');
+    assert.equal(consentUrl.pathname, '/signin');
+    assert.equal(consentUrl.searchParams.get('reason'), 'missing_consent');
+    const sessionCookie = ((providerCallback.headers as any).getSetCookie?.()[0] || providerCallback.headers.get('set-cookie') || '').split(';')[0];
+    assert.ok(sessionCookie);
+    const consent = await fetch(`${baseUrl}/api/auth/consent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Auth-App-Id': 'grid',
+        Cookie: sessionCookie,
+      },
+      body: JSON.stringify({ consent: {
+        grid_terms_v1: true,
+        grid_privacy_v1: true,
+        grid_eeccd_v1: true,
+      } }),
+    });
+    assert.equal(consent.status, 200);
+    const continuation = await fetch(
+      `${baseUrl}/oauth/authorize/complete?authorization_request=${encodeURIComponent(signinUrl.searchParams.get('authorization_request') || '')}`,
+      { headers: { 'X-Auth-App-Id': 'grid', Cookie: sessionCookie }, redirect: 'manual' },
+    );
+    assert.equal(continuation.status, 302);
+    const loopback = new URL(continuation.headers.get('location') || '');
+    assert.equal(loopback.hostname, '127.0.0.1');
+    assert.equal(loopback.pathname, '/grid-natives-callback');
+    assert.ok(loopback.searchParams.get('code'));
   });
 });

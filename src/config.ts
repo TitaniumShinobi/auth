@@ -115,6 +115,7 @@ function buildConfigFromParsed(parsed: AuthAppConfig): AuthAppConfig {
       provider: provider.provider,
       label: provider.label || provider.provider,
       enabled: provider.enabled !== false,
+      callbackUrl: provider.callbackUrl?.trim() || undefined,
     })),
     publicClients: (parsed.publicClients || []).map((client) => ({
       ...client,
@@ -156,10 +157,12 @@ function getRequestQueryValue(req: any, key: string) {
 
 function getRequestCandidateAppIds(req: any) {
   const candidates = [
+    // Public virtual hosts overwrite this header before proxying to AUTH.
+    // When present it is therefore the deterministic product boundary.
+    getRequestHeader(req, 'x-auth-app-id').trim(),
     getRequestQueryValue(req, 'app'),
     getRequestQueryValue(req, 'appId'),
     getRequestQueryValue(req, 'consumer'),
-    getRequestHeader(req, 'x-auth-app-id').trim(),
     typeof req?.body?.product_id === 'string' ? req.body.product_id.trim() : '',
   ]
     .map((value) => value.toLowerCase())

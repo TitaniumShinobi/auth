@@ -1,6 +1,7 @@
 import { verifyVvaultSessionProof, verifyChattyConsentManifest } from './auth/vvaultSessionFederation.js';
 import { createEnrollmentConsent } from './auth/enrollmentConsent.js';
 import { mountEnrollmentHost } from './auth/enrollmentHost.js';
+import { renderHostedAuthorizationPage } from './auth/hostedAuthorizationPage.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import express from 'express';
@@ -1784,6 +1785,36 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
   app.get('/oauth/authorize/complete', async (req, res) =>
     completeAuthorization(req, res, String(req.query.authorization_request || '')));
 
+  app.get('/signin', async (req, res) => {
+    const config = await getConfigForRequest(req);
+    const requestId = String(req.query.authorization_request || '');
+    const authorizationReturn = `${resolveAuthorizationOrigin()}/oauth/authorize/complete`;
+    if (!/^[A-Za-z0-9_-]{24,128}$/.test(requestId)
+      || (req.query.authorization_return !== undefined && String(req.query.authorization_return) !== authorizationReturn)) {
+      return oauthError(res, 400, 'invalid_authorization_request');
+    }
+    const pending = await ephemeralStore.getJson<AuthorizationRequestRecord>(authorizationRequestKey(requestId));
+    if (!pending || pending.appId !== config.app.id || Date.now() - pending.createdAt > AUTHORIZATION_REQUEST_TTL_SECONDS * 1000) {
+      return oauthError(res, 400, 'invalid_authorization_request');
+    }
+    const client = findPublicClient(config, pending.clientId);
+    if (!client || !validateRedirectUri(client, pending.redirectUri)) {
+      return oauthError(res, 400, 'invalid_authorization_request');
+    }
+    const providers = resolveProviderClients(config, options.providers);
+    const providerStatuses = buildProviderStatuses(config, providers);
+    const consentRequired = String(req.query.reason || '') === 'missing_consent';
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    return res.type('html').send(renderHostedAuthorizationPage({
+      config,
+      providers: providerStatuses,
+      authorizationRequest: requestId,
+      authorizationReturn,
+      consentRequired,
+    }));
+  });
+
   app.post('/oauth/federation/assertions', async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (req.body?.authority_proof !== undefined) {
@@ -3045,9 +3076,14 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       const tokens = await issueTokenPairForUser(req, config, user, sessionUser);
       if (!hasRequiredConsent) {
         res.setHeader('Set-Cookie', createHostedTokenCookies(req, cookieName, refreshCookieName, tokens, tokenConfig));
-        // AUTH has no frontend. Keep the authenticated identity and expose the
-        // existing consent API instead of redirecting to the removed root UI.
         res.setHeader('Cache-Control', 'no-store');
+        if (stateRecord.authorizationRequestId) {
+          const consentPage = new URL('/signin', resolveHostedOrigin(req));
+          consentPage.searchParams.set('authorization_request', stateRecord.authorizationRequestId);
+          consentPage.searchParams.set('authorization_return', `${resolveAuthorizationOrigin()}/oauth/authorize/complete`);
+          consentPage.searchParams.set('reason', 'missing_consent');
+          return res.redirect(consentPage.toString());
+        }
         return res.status(403).json({
           ok: false,
           state: 'ENROLLMENT_REQUIRED',
