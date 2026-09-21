@@ -16,36 +16,10 @@ export type AuthTurnstileConfig = {
   siteKey?: string;
 };
 
-export type ConfiguredOAuthProfileMap = {
-  subject?: string;
-  email?: string;
-  displayName?: string;
-  avatarUrl?: string;
-  emailVerified?: string;
-};
-
-/**
- * AUTH-owned vs configured providers:
- * - Built-in adapters (google/github/microsoft) are identity-capable and can
- *   establish a verified LIFE identity (normalized into the canonical owner chain).
- * - Config-declared OAuth2/OIDC providers use a generic adapter and act as
- *   account-link/login providers; they never fabricate a primary identity
- *   unless (in a future release) they ship a vetted built-in adapter.
- */
 export type AuthProviderDefinition = {
   provider: AuthProviderId;
   label: string;
   enabled: boolean;
-  type?: 'oauth2' | 'oidc';
-  clientIdEnv?: string;
-  clientSecretEnv?: string;
-  scopes?: string[];
-  prompt?: string;
-  identityCapable?: boolean;
-  authorizationEndpoint?: string;
-  tokenEndpoint?: string;
-  userinfoEndpoint?: string;
-  profileMap?: ConfiguredOAuthProfileMap;
 };
 
 export type AuthProviderConfig = AuthProviderDefinition & {
@@ -252,7 +226,7 @@ export type UpsertProviderAccountConnectionInput = {
   displayName?: string | null;
   avatarUrl?: string | null;
   profile: Record<string, unknown>;
-  accessTokenEncrypted?: string | null;
+  accessTokenEncrypted: string;
   accessTokenScope?: string | null;
   connectedAt?: string | null;
 };
@@ -261,7 +235,6 @@ export type ProviderProfile = {
   providerUserId: string;
   email: string;
   displayName: string;
-  emailVerified?: boolean;
   avatarUrl?: string;
   raw: Record<string, unknown>;
 };
@@ -283,10 +256,6 @@ export type OAuthProviderClient = {
   isConfigured: () => boolean;
   buildAuthorizationUrl: (context: OAuthStartContext) => string;
   exchangeCodeForProfile: (context: OAuthExchangeContext) => Promise<ProviderProfile>;
-  /** Identity issuer honored by the canonical-owner normalization chain. */
-  issuer?: string;
-  /** When false, the provider may complete OAuth but never establishes a primary LIFE identity. */
-  identityCapable?: boolean;
 };
 
 export type StorageAdapter = {

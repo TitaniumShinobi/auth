@@ -8,8 +8,8 @@
     "envPrefix": "CHATTY"
   },
   "allowedOrigins": [
-    "http://localhost:5173",
-    "http://localhost:5050"
+    "https://chatty.thewreck.org",
+    "https://chatty.thewreck.org"
   ],
   "redirects": {
     "postLoginPath": "/",
@@ -25,10 +25,10 @@
   "publicClients": [
     {
       "clientId": "chatty-web-link",
-      "authorizationUiUrl": "http://localhost:5173/login",
+      "authorizationUiUrl": "https://chatty.thewreck.org/login",
       "redirectUris": [
-        "http://localhost:5173/auth/connect-callback",
-        "http://localhost:5173/api/auth/paired/callback"
+        "https://chatty.thewreck.org/auth/connect-callback",
+        "https://chatty.thewreck.org/api/auth/paired/callback"
       ],
       "scopes": [
         "openid",
@@ -38,7 +38,7 @@
     },
     {
       "clientId": "chatty-cli",
-      "authorizationUiUrl": "http://localhost:5173/login",
+      "authorizationUiUrl": "https://chatty.thewreck.org/login",
       "loopback": {
         "hosts": [
           "127.0.0.1",
@@ -60,21 +60,21 @@
       "key": "chatty:terms",
       "version": "2026-03-13",
       "label": "Chatty Terms of Service",
-      "url": "http://localhost:5173/legal/terms",
+      "url": "https://chatty.thewreck.org/legal/terms",
       "required": true
     },
     {
       "key": "chatty:privacy",
       "version": "2026-03-13",
       "label": "Chatty Privacy Notice",
-      "url": "http://localhost:5173/legal/privacy",
+      "url": "https://chatty.thewreck.org/legal/privacy",
       "required": true
     },
     {
       "key": "chatty:eeccd",
       "version": "2026-03-13",
       "label": "Chatty EECCD Disclosure",
-      "url": "http://localhost:5173/legal/eeccd",
+      "url": "https://chatty.thewreck.org/legal/eeccd",
       "required": true
     }
   ],

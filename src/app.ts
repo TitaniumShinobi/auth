@@ -17,10 +17,8 @@ import {
   getSessionSecret,
 } from './config.js';
 import {
-  BUILTIN_PROVIDER_IDS,
-  RECOGNIZED_PROVIDER_IDS,
-  createProviderClients,
-  createVerifiedProviderIdentity,
+  createGoogleProviderClient,
+  createGitHubProviderClient,
   resolveOAuthCallbackUrl,
   resolveProviderCredentialEnv,
   resolveProviderCredentials,
@@ -1429,7 +1427,10 @@ async function resolveCanonicalVvaultOwnerId(email: string, providerIdentity?: V
 
 function resolveProviderClients(config: AuthAppConfig, overrides?: Record<string, OAuthProviderClient>) {
   if (overrides) return overrides;
-  return createProviderClients(config);
+  return {
+    google: createGoogleProviderClient(config),
+    github: createGitHubProviderClient(config),
+  };
 }
 
 function buildProviderStatuses(
@@ -2506,7 +2507,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     const providerId = String(req.params.provider || '').toLowerCase();
     const configuredProvider = config.providers.find((provider) => provider.provider === providerId);
     if (!configuredProvider) {
-      if (BUILTIN_PROVIDER_IDS.includes(providerId as any) || RECOGNIZED_PROVIDER_IDS.has(providerId)) {
+      if (['google', 'github', 'microsoft', 'apple'].includes(providerId)) {
         return res.json({ ok: true, provider: providerId, enabled: false, available: false, reason: 'Provider is not configured' });
       }
       return res.status(404).json({ ok: false, error: 'Unknown auth provider' });
@@ -2538,7 +2539,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     const email = String(req.body?.email || '').trim().toLowerCase();
     let url: URL;
     try { url = new URL(String(req.body?.url || '')); } catch { return res.status(400).json({ ok: false, code: 'INVALID_MAGIC_REQUEST' }); }
-    if (!config.allowedOrigins.includes(url.origin) || url.pathname !== '/' || url.search || url.username || url.password || !/^#magic_link=[A-Za-z0-9_-]+$/.test(url.hash) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (config.app.id !== 'vvault' || !config.allowedOrigins.includes(url.origin) || url.pathname !== '/' || url.search || url.username || url.password || !/^#magic_link=[A-Za-z0-9_-]+$/.test(url.hash) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ ok: false, code: 'INVALID_MAGIC_REQUEST' });
     }
     if (!magicEmailDelivery.isConfigured()) return res.status(503).json({ ok: false, code: 'MAGIC_EMAIL_NOT_CONFIGURED' });
@@ -2560,11 +2561,9 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !['login', 'signup'].includes(intent)) {
       return res.status(400).json({ ok: false, code: 'INVALID_MAGIC_REQUEST', error: 'Enter a valid email and login or signup intent.' });
     }
-    // Product signup owns consent; AUTH issues signup challenges and completes
-    // enrollment on consume (creating the user when none exists and gating on
-    // consent there). Login remains limited to users who already exist here.
-    const existingUser = await storage.findUserByEmail(email);
-    if (intent === 'login' && (!existingUser || !await hasRequiredConsentForApp(storage, config, existingUser.id))) {
+    // Product signup owns consent and enrollment; AUTH must not start it by email.
+    const existingUser = intent === 'login' ? await storage.findUserByEmail(email) : null;
+    if (intent === 'signup' || !existingUser || !await hasRequiredConsentForApp(storage, config, existingUser.id)) {
       return res.status(403).json({ ok: false, code: 'ENROLLMENT_REQUIRED', requiresProductSignup: true, intent, error: `Complete ${config.app.name} signup before signing in.` });
     }
     if (!magicEmailDelivery.isConfigured()) {
@@ -2591,37 +2590,12 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     }
     const record = await consumeMagicChallenge(ephemeralStore, String(req.body?.token || ''), config.app.id, origin);
     if (!record) return res.status(400).json({ ok: false, code: 'MAGIC_LINK_INVALID', error: 'This link expired or was already used. Request another email.' });
-    let user = await storage.findUserByEmail(record.email);
-    if (!user) {
-      if (record.intent !== 'signup') {
-        return res.status(403).json({ ok: false, code: 'ENROLLMENT_REQUIRED', requiresProductSignup: true, intent: record.intent, error: `Complete ${config.app.name} signup before signing in.` });
-      }
-      user = await storage.upsertOAuthUser({
-        provider: 'email',
-        providerUserId: record.email,
-        email: record.email,
-        displayName: record.email.split('@')[0],
-        profile: { source: 'magic_email', appId: config.app.id, intent: record.intent },
-      });
+    const user = await storage.findUserByEmail(record.email);
+    if (!user || !await hasRequiredConsentForApp(storage, config, user.id)) {
+      return res.status(403).json({ ok: false, code: 'ENROLLMENT_REQUIRED', requiresProductSignup: true, intent: record.intent, error: `Complete ${config.app.name} signup before signing in.` });
     }
     const sessionUser = await buildSessionForUser(user);
     const tokens = await issueTokenPairForUser(req, config, user, sessionUser);
-    if (!await hasRequiredConsentForApp(storage, config, user.id)) {
-      res.setHeader('Set-Cookie', createHostedTokenCookies(req, cookieName, refreshCookieName, tokens, tokenConfig));
-      // AUTH has no frontend. Keep the authenticated identity and expose the
-      // existing consent API instead of redirecting to the removed root UI.
-      res.setHeader('Cache-Control', 'no-store');
-      return res.status(403).json({
-        ok: false,
-        state: 'ENROLLMENT_REQUIRED',
-        reason: 'missing_consent',
-        requiresProductSignup: true,
-        appId: config.app.id,
-        message: `Complete ${config.app.name} signup before continuing.`,
-        consent: { method: 'POST', url: `/api/auth/consent?app=${encodeURIComponent(config.app.id)}`, docs: config.docs },
-        continuation: `${origin}${config.redirects.postLoginPath}`,
-      });
-    }
     await storage.updateUserLogin(user.id);
     res.setHeader('Set-Cookie', createHostedTokenCookies(req, cookieName, refreshCookieName, tokens, tokenConfig));
     return res.json({ ok: true, user: sessionUser, intent: record.intent });
@@ -2923,15 +2897,14 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     const providerId = String(req.params.provider || '').toLowerCase();
     const configuredProvider = config.providers.find((provider) => provider.provider === providerId);
     const client = providers[providerId];
-    const knownProvider = Boolean(client) || BUILTIN_PROVIDER_IDS.includes(providerId as any) || RECOGNIZED_PROVIDER_IDS.has(providerId);
     if (!configuredProvider || !configuredProvider.enabled || !client) {
-      if (knownProvider) {
+      if (['google', 'github', 'microsoft', 'apple'].includes(providerId)) {
         return res.status(503).json({ ok: false, provider: providerId, code: 'PROVIDER_NOT_CONFIGURED', error: `${providerId} sign-in is not configured yet. Use another sign-in method.` });
       }
       return res.status(404).json({ ok: false, error: 'Unknown auth provider' });
     }
     if (!client.isConfigured()) {
-      return res.status(503).json({ ok: false, provider: providerId, code: 'PROVIDER_NOT_CONFIGURED', error: `${providerId} sign-in is not configured yet. Use another sign-in method.` });
+      return res.status(503).json({ ok: false, error: `${providerId} sign-in is not configured yet.` });
     }
 
     const originSelection = resolveStrictOAuthStartOrigin(req, config);
@@ -3055,24 +3028,6 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         code,
         callbackUrl: stateRecord.callbackUrl,
       });
-      if (client.identityCapable === false) {
-        // Account-link provider: attach the provider connection to the current
-        // authenticated session without establishing a primary LIFE identity.
-        const authContext = await readAuthenticatedUser(req, storage, cookieName, tokenConfig, refreshTokenStore, ephemeralStore);
-        if ('error' in authContext) {
-          return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?error=missing_session`);
-        }
-        await storage.upsertProviderAccountConnection({
-          userId: authContext.user.id,
-          provider: providerId,
-          providerUserId: profile.providerUserId,
-          email: profile.email,
-          displayName: profile.displayName,
-          avatarUrl: profile.avatarUrl || null,
-          profile: profile.raw,
-        });
-        return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}`);
-      }
       const user = await storage.upsertOAuthUser({
         provider: providerId,
         providerUserId: profile.providerUserId,
@@ -3083,7 +3038,9 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       });
       const hasRequiredConsent = await hasRequiredConsentForApp(storage, config, user.id);
       // The subject comes only from the current successful provider exchange.
-      const providerIdentity = createVerifiedProviderIdentity(client, profile);
+      const providerIdentity: VerifiedProviderIdentity | undefined = providerId === 'google' || providerId === 'github'
+        ? { provider: providerId, subject: profile.providerUserId, issuer: providerId === 'google' ? 'https://accounts.google.com' : 'https://github.com', ...(providerId === 'google' && profile.raw?.email_verified === true ? {verifiedEmail:profile.email} : {}) }
+        : undefined;
       const sessionUser = await buildSessionForUser(user, providerIdentity);
       const tokens = await issueTokenPairForUser(req, config, user, sessionUser);
       if (!hasRequiredConsent) {

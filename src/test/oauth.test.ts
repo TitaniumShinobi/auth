@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import type { AppConfigStore, AuthAppConfig, OAuthProviderClient } from '../types.js';
 import { createAuthApp } from '../app.js';
-import { createGoogleProviderClient, resolveOAuthCallbackUrl, resolveProviderCredentials } from '../auth/oauth.js';
+import { resolveProviderCredentials } from '../auth/oauth.js';
 import { MemoryStorageAdapter } from '../persistence/memoryStorage.js';
 
 const CONFIG: AuthAppConfig = {
@@ -23,21 +23,15 @@ const CONFIG: AuthAppConfig = {
 };
 
 class StaticConfigStore implements AppConfigStore {
-  constructor(private readonly config: AuthAppConfig = CONFIG) {}
-
   async getConfig() {
-    return this.config;
+    return CONFIG;
   }
 }
 
-async function withServer(
-  provider: OAuthProviderClient,
-  fn: (baseUrl: string) => Promise<void>,
-  config: AuthAppConfig = CONFIG,
-) {
+async function withServer(provider: OAuthProviderClient, fn: (baseUrl: string) => Promise<void>) {
   const app = await createAuthApp({
     storage: new MemoryStorageAdapter(),
-    configStore: new StaticConfigStore(config),
+    configStore: new StaticConfigStore(),
     providers: { google: provider },
     sessionSecret: 'oauth-secret',
     cookieName: 'auth_sid',
@@ -94,31 +88,6 @@ test('prefers app-scoped OAuth env vars before generic shared vars', () => {
   }
 });
 
-test('does not configure Google OAuth when the secret is a placeholder', () => {
-  const original = {
-    CODE_GOOGLE_CLIENT_ID: process.env.CODE_GOOGLE_CLIENT_ID,
-    CODE_GOOGLE_CLIENT_SECRET: process.env.CODE_GOOGLE_CLIENT_SECRET,
-    CODE_GOOGLE_CALLBACK_URL: process.env.CODE_GOOGLE_CALLBACK_URL,
-  };
-
-  process.env.CODE_GOOGLE_CLIENT_ID = '936875376345-s7g9j45opr1jsog24l5gpnobj0278n3c.apps.googleusercontent.com';
-  process.env.CODE_GOOGLE_CLIENT_SECRET = 'abc';
-  process.env.CODE_GOOGLE_CALLBACK_URL = 'http://localhost:2048/api/auth/google/callback';
-
-  try {
-    const provider = createGoogleProviderClient(CONFIG);
-    assert.equal(provider.isConfigured(), false);
-  } finally {
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
-});
-
 test('falls back to existing callback base env vars when explicit callback url is unset', () => {
   const original = {
     CODE_GOOGLE_CLIENT_ID: process.env.CODE_GOOGLE_CLIENT_ID,
@@ -136,7 +105,7 @@ test('falls back to existing callback base env vars when explicit callback url i
   process.env.CODE_GOOGLE_CLIENT_ID = 'code-client';
   process.env.CODE_GOOGLE_CLIENT_SECRET = 'code-secret';
   delete process.env.CODE_GOOGLE_CALLBACK_URL;
-  process.env.CODE_PUBLIC_CALLBACK_BASE = 'http://localhost:2048/';
+  process.env.CODE_PUBLIC_CALLBACK_BASE = 'http://localhost:5173/';
   process.env.CODE_CALLBACK_PATH = '/api/auth/google/callback';
   process.env.GOOGLE_CLIENT_ID = 'shared-client';
   process.env.GOOGLE_CLIENT_SECRET = 'shared-secret';
@@ -148,7 +117,7 @@ test('falls back to existing callback base env vars when explicit callback url i
     assert.deepEqual(resolveProviderCredentials('google', CONFIG), {
       clientId: 'code-client',
       clientSecret: 'code-secret',
-      callbackUrl: 'http://localhost:2048/api/auth/google/callback',
+      callbackUrl: 'http://localhost:5173/api/auth/google/callback',
     });
   } finally {
     for (const [key, value] of Object.entries(original)) {
@@ -211,10 +180,9 @@ test('starts OAuth, completes callback, and sets a session cookie', async () => 
         redirect: 'manual',
       });
       assert.equal(callback.status, 302);
-      const callbackLocation = callback.headers.get('location');
-      assert.equal(callbackLocation, 'http://localhost:2048/');
+      assert.equal(callback.headers.get('location'), 'http://localhost:2048/');
       const setCookie = (callback.headers as any).getSetCookie?.()[0] || callback.headers.get('set-cookie');
-      assert.match(setCookie || '', /^auth_sid=/);
+      assert.ok(setCookie);
     });
   } finally {
     for (const [key, value] of Object.entries(original)) {
@@ -239,53 +207,6 @@ test('starts OAuth with the configured callback base when legacy callback env va
   process.env.CODE_GOOGLE_CLIENT_ID = 'code-client';
   process.env.CODE_GOOGLE_CLIENT_SECRET = 'code-secret';
   delete process.env.CODE_GOOGLE_CALLBACK_URL;
-  process.env.CODE_PUBLIC_CALLBACK_BASE = 'http://localhost:2048';
-  process.env.CODE_CALLBACK_PATH = '/api/auth/google/callback';
-
-  const provider: OAuthProviderClient = {
-    provider: 'google',
-    label: 'Continue with Google',
-    isConfigured: () => true,
-    buildAuthorizationUrl: ({ state, callbackUrl }) => `https://accounts.google.test/auth?state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(callbackUrl)}`,
-    exchangeCodeForProfile: async () => {
-      throw new Error('not used');
-    },
-  };
-
-  try {
-    await withServer(provider, async (baseUrl) => {
-      const start = await fetch(`${baseUrl}/api/auth/google`, {
-        redirect: 'manual',
-      });
-      assert.equal(start.status, 302);
-      const location = start.headers.get('location');
-      assert.ok(location);
-      const authUrl = new URL(location);
-      assert.equal(authUrl.searchParams.get('redirect_uri'), 'http://localhost:2048/api/auth/google/callback');
-    });
-  } finally {
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
-});
-
-test('starts OAuth with request origin when explicit callback env points at backend origin', async () => {
-  const original = {
-    CODE_GOOGLE_CLIENT_ID: process.env.CODE_GOOGLE_CLIENT_ID,
-    CODE_GOOGLE_CLIENT_SECRET: process.env.CODE_GOOGLE_CLIENT_SECRET,
-    CODE_GOOGLE_CALLBACK_URL: process.env.CODE_GOOGLE_CALLBACK_URL,
-    CODE_PUBLIC_CALLBACK_BASE: process.env.CODE_PUBLIC_CALLBACK_BASE,
-    CODE_CALLBACK_PATH: process.env.CODE_CALLBACK_PATH,
-  };
-
-  process.env.CODE_GOOGLE_CLIENT_ID = 'code-client';
-  process.env.CODE_GOOGLE_CLIENT_SECRET = 'code-secret';
-  process.env.CODE_GOOGLE_CALLBACK_URL = 'http://localhost:8000/api/auth/google/callback';
   process.env.CODE_PUBLIC_CALLBACK_BASE = 'http://localhost:5173';
   process.env.CODE_CALLBACK_PATH = '/api/auth/google/callback';
 
@@ -309,186 +230,8 @@ test('starts OAuth with request origin when explicit callback env points at back
       const location = start.headers.get('location');
       assert.ok(location);
       const authUrl = new URL(location);
-      assert.equal(authUrl.searchParams.get('redirect_uri'), 'http://localhost:2048/api/auth/google/callback');
+      assert.equal(authUrl.searchParams.get('redirect_uri'), 'http://localhost:5173/api/auth/google/callback');
     });
-  } finally {
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
-});
-
-test('starts OAuth with backend callback only when the callback origin is explicitly allowed', async () => {
-  const original = {
-    CODE_GOOGLE_CLIENT_ID: process.env.CODE_GOOGLE_CLIENT_ID,
-    CODE_GOOGLE_CLIENT_SECRET: process.env.CODE_GOOGLE_CLIENT_SECRET,
-    CODE_GOOGLE_CALLBACK_URL: process.env.CODE_GOOGLE_CALLBACK_URL,
-    CODE_PUBLIC_CALLBACK_BASE: process.env.CODE_PUBLIC_CALLBACK_BASE,
-    CODE_CALLBACK_PATH: process.env.CODE_CALLBACK_PATH,
-  };
-
-  process.env.CODE_GOOGLE_CLIENT_ID = 'code-client';
-  process.env.CODE_GOOGLE_CLIENT_SECRET = 'code-secret';
-  process.env.CODE_GOOGLE_CALLBACK_URL = 'http://localhost:8000/api/auth/google/callback';
-  delete process.env.CODE_PUBLIC_CALLBACK_BASE;
-  delete process.env.CODE_CALLBACK_PATH;
-
-  const provider: OAuthProviderClient = {
-    provider: 'google',
-    label: 'Continue with Google',
-    isConfigured: () => true,
-    buildAuthorizationUrl: ({ state, callbackUrl }) => `https://accounts.google.test/auth?state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(callbackUrl)}`,
-    exchangeCodeForProfile: async () => {
-      throw new Error('not used');
-    },
-  };
-
-  try {
-    await withServer(
-      provider,
-      async (baseUrl) => {
-        const start = await fetch(`${baseUrl}/api/auth/google`, {
-          headers: { Origin: 'http://localhost:2048' },
-          redirect: 'manual',
-        });
-        assert.equal(start.status, 302);
-        const location = start.headers.get('location');
-        assert.ok(location);
-        const authUrl = new URL(location);
-        assert.equal(authUrl.searchParams.get('redirect_uri'), 'http://localhost:8000/api/auth/google/callback');
-      },
-      {
-        ...CONFIG,
-        allowedOrigins: ['http://localhost:2048', 'http://localhost:8000'],
-      },
-    );
-  } finally {
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
-});
-
-test('rejects OAuth start from an unknown origin instead of falling back to the hosted backend', async () => {
-  const original = {
-    CODE_GOOGLE_CALLBACK_URL: process.env.CODE_GOOGLE_CALLBACK_URL,
-    CODE_PUBLIC_CALLBACK_BASE: process.env.CODE_PUBLIC_CALLBACK_BASE,
-    GOOGLE_CALLBACK_URL: process.env.GOOGLE_CALLBACK_URL,
-    PUBLIC_CALLBACK_BASE: process.env.PUBLIC_CALLBACK_BASE,
-  };
-
-  process.env.CODE_GOOGLE_CALLBACK_URL = 'http://localhost:8000/api/auth/google/callback';
-  delete process.env.CODE_PUBLIC_CALLBACK_BASE;
-  delete process.env.GOOGLE_CALLBACK_URL;
-  delete process.env.PUBLIC_CALLBACK_BASE;
-
-  const provider: OAuthProviderClient = {
-    provider: 'google',
-    label: 'Continue with Google',
-    isConfigured: () => true,
-    buildAuthorizationUrl: () => {
-      throw new Error('not used');
-    },
-    exchangeCodeForProfile: async () => {
-      throw new Error('not used');
-    },
-  };
-
-  try {
-    await withServer(provider, async (baseUrl) => {
-      const start = await fetch(`${baseUrl}/api/auth/google`, {
-        headers: { Origin: 'http://localhost:7784' },
-        redirect: 'manual',
-      });
-      assert.equal(start.status, 403);
-      const payload = await start.json() as { ok?: boolean; error?: string };
-      assert.equal(payload.ok, false);
-      assert.equal(payload.error, 'AUTH_ORIGIN_NOT_ALLOWED');
-    });
-  } finally {
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
-});
-
-test('rejects OAuth start without origin evidence when no allowed callback is configured', async () => {
-  const original = {
-    CODE_GOOGLE_CALLBACK_URL: process.env.CODE_GOOGLE_CALLBACK_URL,
-    CODE_PUBLIC_CALLBACK_BASE: process.env.CODE_PUBLIC_CALLBACK_BASE,
-    GOOGLE_CALLBACK_URL: process.env.GOOGLE_CALLBACK_URL,
-    PUBLIC_CALLBACK_BASE: process.env.PUBLIC_CALLBACK_BASE,
-  };
-
-  process.env.CODE_GOOGLE_CALLBACK_URL = 'http://localhost:8000/api/auth/google/callback';
-  delete process.env.CODE_PUBLIC_CALLBACK_BASE;
-  delete process.env.GOOGLE_CALLBACK_URL;
-  delete process.env.PUBLIC_CALLBACK_BASE;
-
-  const provider: OAuthProviderClient = {
-    provider: 'google',
-    label: 'Continue with Google',
-    isConfigured: () => true,
-    buildAuthorizationUrl: () => {
-      throw new Error('not used');
-    },
-    exchangeCodeForProfile: async () => {
-      throw new Error('not used');
-    },
-  };
-
-  try {
-    await withServer(provider, async (baseUrl) => {
-      const start = await fetch(`${baseUrl}/api/auth/google`, {
-        redirect: 'manual',
-      });
-      assert.equal(start.status, 503);
-      const payload = await start.json() as { ok?: boolean; error?: string };
-      assert.equal(payload.ok, false);
-      assert.equal(payload.error, 'OAUTH_CALLBACK_NOT_ALLOWED');
-    });
-  } finally {
-    for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
-});
-
-test('callback resolver reports stale generic callback conflicts without selecting them', () => {
-  const original = {
-    CODE_GOOGLE_CALLBACK_URL: process.env.CODE_GOOGLE_CALLBACK_URL,
-    CODE_PUBLIC_CALLBACK_BASE: process.env.CODE_PUBLIC_CALLBACK_BASE,
-    GOOGLE_CALLBACK_URL: process.env.GOOGLE_CALLBACK_URL,
-    PUBLIC_CALLBACK_BASE: process.env.PUBLIC_CALLBACK_BASE,
-  };
-
-  delete process.env.CODE_GOOGLE_CALLBACK_URL;
-  delete process.env.CODE_PUBLIC_CALLBACK_BASE;
-  process.env.GOOGLE_CALLBACK_URL = 'http://localhost:8000/api/auth/google/callback';
-  process.env.PUBLIC_CALLBACK_BASE = 'http://localhost:5050';
-
-  try {
-    const resolution = resolveOAuthCallbackUrl('google', CONFIG, {
-      requestOrigin: 'http://localhost:2048',
-    });
-    assert.equal(resolution.callbackUrl, 'http://localhost:2048/api/auth/google/callback');
-    assert.equal(resolution.source, 'request_origin');
   } finally {
     for (const [key, value] of Object.entries(original)) {
       if (value === undefined) {

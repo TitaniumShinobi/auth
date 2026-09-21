@@ -1,20 +1,14 @@
 /** Identity proof comes from the existing authenticated session, never an owner override. */
 export const OWNER_DATASOURCE_REFERENCE = 'env:AUTH_CANONICAL_OWNER_DATABASE_URL';
-export type VerifiedProviderIdentity = { provider: 'google' | 'github' | 'microsoft' | 'email'; subject: string; issuer: string; verifiedEmail?: string };
+export type VerifiedProviderIdentity = { provider: 'google' | 'github' | 'email'; subject: string; issuer: string; verifiedEmail?: string };
 export function normalizeVerifiedProviderIdentity(value: unknown): VerifiedProviderIdentity | null {
   if (!value || typeof value !== 'object') return null;
   const v = value as VerifiedProviderIdentity;
-  const issuers: Record<string, string> = {
-    google: 'https://accounts.google.com',
-    github: 'https://github.com',
-    microsoft: 'https://login.microsoftonline.com/common/oauth2/v2.0',
-    email: 'https://vvault.thewreck.org',
-  };
+  const issuers: Record<string, string> = { google: 'https://accounts.google.com', github: 'https://github.com', email: 'https://vvault.thewreck.org' };
   if (!Object.hasOwn(issuers, v.provider) || v.issuer !== issuers[v.provider]
     || typeof v.subject !== 'string' || !v.subject.trim() || v.subject.length > 256
     || v.subject !== v.subject.trim()) return null;
-  if (v.verifiedEmail !== undefined && (!['google', 'microsoft', 'email'].includes(v.provider) || typeof v.verifiedEmail !== 'string' || v.verifiedEmail.length > 320 || !/^[^\s@]+@[^\s@]+$/.test(v.verifiedEmail))) return null;
-  if (Object.hasOwn(v, 'verifiedEmail') && v.verifiedEmail === undefined) return null;
+  if (v.verifiedEmail !== undefined && (!['google','email'].includes(v.provider) || typeof v.verifiedEmail !== 'string' || v.verifiedEmail.length > 320 || !/^[^\s@]+@[^\s@]+$/.test(v.verifiedEmail))) return null;
   if (v.provider === 'email' && (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.subject) || !v.verifiedEmail)) return null;
   return { provider: v.provider, subject: v.subject, issuer: v.issuer, ...(v.verifiedEmail ? {verifiedEmail:v.verifiedEmail} : {}) };
 }
