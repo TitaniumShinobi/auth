@@ -1,0 +1,173 @@
+{
+  "candidateBase": "07fd583c10d0547b1da9f19d046923aa4381709c",
+  "files": [
+    {
+      "path": "bin/auth",
+      "source": "bf60e5e",
+      "blob": "ad9bc4315d27c10754119e50e6b24f212905eb44",
+      "sha256": "bb577ff151f3bab58fa9bd5fadb2fcec9422fc792a5cc80e2c9937d5cce2ea4e",
+      "role": "launcher",
+      "classification": "A"
+    },
+    {
+      "path": "bin/node20",
+      "source": "bf60e5e",
+      "blob": "5a6d34b7ab8f7bcfeabed801513f3b356dcb227d",
+      "sha256": "80711bf040dd81017c7fc84cf84577551757c22d1a8dd679d8d9ddf59f25bd46",
+      "role": "launcher",
+      "classification": "A"
+    },
+    {
+      "path": "bin/npm20",
+      "source": "bf60e5e",
+      "blob": "04ad5480be17f4f0505637da655dcfddf1f53eb6",
+      "sha256": "5ed38b50a2c4947ca8aab270e9b20100c6d110fdc36c470c8a773ccf0f66f0db",
+      "role": "launcher",
+      "classification": "A"
+    },
+    {
+      "path": "src/test/authorizationCode.test.ts",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "77c12a34a2494e7c68f2d18e21c62e6dacb55ba2",
+      "sha256": "928483c2109aae6776d1ac3ff3f92eefeb03731f15b175ae39ca7f01f14cf368",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/ownerDatasourceKeychain.test.ts",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "4db029169e351dba9460e97d7b12c8272e00648e",
+      "sha256": "cf558d3b8668861ff9fef9b4c6e59847c1646635dd387bc0beb9c34c2a6a3d30",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/providerOwnerFlow.test.ts",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "7e456d006d977c8ba363903d69262f8342a8a202",
+      "sha256": "6f03776bc559042416c2924004263bcca7e7771201793c00c6528aa499c1ea31",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/startup.test.ts",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "994ece7f068c037e581d31677f95873976a225fd",
+      "sha256": "e13d85d6273dcbf1c35456c0c0b305d24841c67bdee8026bb57b09e4d61b79f1",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "scripts/auth-cli.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "023a821ff628239f2193913856f4eb2a8f650a15",
+      "sha256": "dfa6a0ebcbc78d86381c8c759894988d1e69ffb7d70b8bc5eb3cd64edb2c2fa3",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/auth-assertion-repair.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "890d20d066823dde261ac3f611b204ccbb04053a",
+      "sha256": "853e4375ded260c3956ea2d66ce2d1ad6d1c6a7166b1162417646d571dc2ae00",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/auth-blocker-handoff.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "7074ffa9a35352b649aa001d229656be74940786",
+      "sha256": "da8f04c1c3359ad9a8ef59b697f97b1fed43c10465d4f3cdc97277ff962b6766",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/auth-conformance-fixture.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "2d10f010f1e2c6e6b711cfaaf036f73d6f66ac36",
+      "sha256": "2c1a25d22d7be529bb02e1a045760e3a9e639b79209acb939c62186b61be3c06",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/auth-evidence-ownership.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "e8c1b5dbed5f7715ec96b9e436d1ccf942623c31",
+      "sha256": "d63ed77878b93acaf0c4147ed7a5538269631d2253b689f221f33eec48644bd9",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/auth-lifecycle.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "7dd598eaf26f1c03cd0a9895f7d7fb9a78cd0dda",
+      "sha256": "123db26cf1fc5f1a51f84862a7fd464842973582d21f002b8b058a01759ac7f4",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/auth-verification-profiles.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "18e6a7bb1346d0a22b669e562418e81916482260",
+      "sha256": "c8c74baa7089367b3044d1e761bbf56d3cdb64aad5075a2b851784e408d49c23",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/auth-welcome.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "1bc175e713fa858b6e5526a8a2bf8d6338d0569d",
+      "sha256": "96d953d9fb58cffef9b2ecf39deeba6ce8ffd9fd7d1784732780124b986d3b62",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/auth-wizard.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "8b5d1f84f1e610df7a51b758dce9fb7a913830a2",
+      "sha256": "7ec43df9655af9949aeecd6f5154a0e87322308de6b3c9279ff7eb8c045d778d",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/canonical-owner.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "6963643f3b8cc8ad0ac27bcff17c12314b7247cd",
+      "sha256": "181d9f961d1d04b29c4e862d278e7e8ab74d8c46fcf40d6d05a093862c19cd14",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/enrollment-handoff.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "f12f5dc16378cc4cfc628d387864739e6467c125",
+      "sha256": "c68e930bf014de48ad03db7df22c4bb156aca127d59b38bd28a6ce2e153a40c7",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/enrollment-wizard.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "7fbd69f069f94b5f226428ccdd8ef76017286519",
+      "sha256": "3cd01d7d51fc55b853883e2a689a49c22ea093a6781ed3d424868763002450d1",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/product-session-provider-proof.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "43f0fa24e574f85595a9a30e5a07d39dc51faa6b",
+      "sha256": "7f7fc7ccd9be1ebeb66f26a98ce429316e95c40e10a5cf056cc0d5d35afa34ca",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "src/test/provider-identity-tokens.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "a951126fa5cb0a4e3e75ece312f4287b9df31b71",
+      "sha256": "4c4b58a7131775a22c09ac3b0e9e4e812d6facd8bf306d8a1b62c18124055f37",
+      "role": "test",
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    }
+  ]
+}
