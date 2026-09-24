@@ -308,6 +308,16 @@
       "role": "operator setup template",
       "necessary_for": "CLI setup copy target",
       "runtime_impact": "None until explicitly authorized setup"
+    },
+    {
+      "path": "scripts/auth-enrollment-handoff.mjs",
+      "source": "bf60e5ed315f7e86ce2c8905996a70fe259a51cd",
+      "blob": "e78080ac0124838c0eecbfd24c732a787c07cdea",
+      "sha256": "080c086230719abed835158ac60eda6c507f403f18d47de57ec4b5a0ea4f709d",
+      "classification": "A; byte-identical B snapshot corroboration",
+      "role": "existing enrollment runtime prerequisite and contract test dependency",
+      "necessary_for": "Existing enrollmentHost dynamic import and enrollment-handoff suite",
+      "runtime_impact": "Restores missing approved module at pre-existing configured enrollment route; no change to Milestone resource runtime"
     }
   ]
 }
