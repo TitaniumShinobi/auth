@@ -237,366 +237,80 @@ test('login returns oauthOnly when local user exists with no password (OAuth-onl
   );
 });
 
-test('Ask Hydro thread resolves to the canonical per-project Hydro singleton transcript', async () => {
-  const previousBaseUrl = process.env.VVAULT_API_BASE_URL;
-  process.env.VVAULT_API_BASE_URL = 'https://vvault.example';
-  const originalFetch = globalThis.fetch;
-  const upstreamCalls: string[] = [];
-
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    if (url.startsWith('https://vvault.example')) {
-      upstreamCalls.push(url);
-      return new Response(JSON.stringify({
-        messages: [
-          {
-            id: 'msg-1',
-            role: 'assistant',
-            content: 'Hello from Hydro.',
-            timestamp: '2026-03-28T12:00:00.000Z',
-            metadata: {
-              modelKey: 'gpt-4o-mini',
-              modelLabel: 'GPT-4o mini',
-            },
-          },
-        ],
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
+// bf60e5e moved Code execution out of AUTH. These are compatibility-boundary tests.
+for (const [label, route, method] of [
+  ['thread', '/api/code/ask/thread', 'GET'],
+  ['status', '/api/code/ask/status', 'GET'],
+  ['messages', '/api/code/ask/messages', 'POST'],
+] as const) {
+  test(`Ask Hydro ${label} is absent by default and explicitly moved when opted in`, async () => {
+    const previous = process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES;
+    const originalFetch = globalThis.fetch;
+    let unexpectedCalls = 0;
+    // No provider/transcript request is allowed from the compatibility route.
+    globalThis.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith('http://127.0.0.1:')) {
+        unexpectedCalls++;
+        throw new Error('Unexpected external request');
+      }
+      return originalFetch(input, init);
+    };
+    try {
+      delete process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES;
+      await withServer({}, async ({ baseUrl }) => {
+        assert.equal((await fetch(`${baseUrl}${route}`, { method })).status, 404);
       });
+      process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES = '1';
+      await withServer({}, async ({ baseUrl }) => {
+        const response = await fetch(`${baseUrl}${route}`, { method });
+        assert.equal(response.status, 501);
+        const body = await response.json() as { ok?: boolean; code?: string; movedTo?: string; canonicalTranscriptPath?: string };
+        assert.equal(body.ok, false);
+        assert.equal(body.code, 'CODE_ASK_MOVED_TO_CODE_RUNTIME');
+        assert.equal(body.movedTo, 'code-runtime');
+        assert.equal(body.canonicalTranscriptPath, undefined);
+      });
+      assert.equal(unexpectedCalls, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previous === undefined) delete process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES;
+      else process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES = previous;
     }
-    return originalFetch(input as any, init);
-  }) as typeof fetch;
+  });
+}
 
+test('scratch compatibility is opt-in, authenticated, and returns metadata without Ask execution', async () => {
+  const previous = process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES;
   try {
+    delete process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES;
     await withServer({}, async ({ baseUrl }) => {
-      const register = await fetch(`${baseUrl}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Devon',
-          email: 'devon@example.com',
-          password: 'secret123',
-          confirmPassword: 'secret123',
-          consent: { 'code:terms': true },
-        }),
-      });
-      const cookie = (register.headers as any).getSetCookie?.()[0] || register.headers.get('set-cookie');
-      assert.ok(cookie);
-
-      const response = await fetch(`${baseUrl}/api/code/ask/thread?projectName=demo&rootPath=%2Ftmp%2Fdemo`, {
-        headers: { Cookie: cookie },
-      });
-      assert.equal(response.status, 200);
-      const payload = await response.json() as {
-        id: string;
-        constructId: string;
-        title: string;
-        storageMode: string;
-      };
-      assert.equal(payload.id, 'hydro-001_demo_hydro_chat');
-      assert.equal(payload.constructId, 'hydro-001');
-      assert.equal(payload.title, 'demo Hydro');
-      assert.equal(payload.storageMode, 'canonical');
-      assert.equal(
-        upstreamCalls[0],
-        'https://vvault.example/api/chatty/transcript/hydro-001?projectName=demo&rootPath=%2Ftmp%2Fdemo',
-      );
+      assert.equal((await fetch(`${baseUrl}/api/code/projects/scratch`, { method: 'POST' })).status, 404);
     });
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (previousBaseUrl === undefined) {
-      delete process.env.VVAULT_API_BASE_URL;
-    } else {
-      process.env.VVAULT_API_BASE_URL = previousBaseUrl;
-    }
-  }
-});
-
-test('Ask Hydro status reports canonical readiness without leaking relay errors into the UI contract', async () => {
-  const previousBaseUrl = process.env.VVAULT_API_BASE_URL;
-  const previousOpenAiKey = process.env.OPENAI_API_KEY;
-  process.env.VVAULT_API_BASE_URL = 'https://vvault.example';
-  process.env.OPENAI_API_KEY = 'test-openai-key';
-
-  try {
+    process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES = '1';
     await withServer({}, async ({ baseUrl }) => {
-      const register = await fetch(`${baseUrl}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Devon',
-          email: 'devon@example.com',
-          password: 'secret123',
-          confirmPassword: 'secret123',
-          consent: { 'code:terms': true },
-        }),
+      const endpoint = `${baseUrl}/api/code/projects/scratch`;
+      assert.equal((await fetch(endpoint, { method: 'POST' })).status, 401);
+      const registration = await fetch(`${baseUrl}/api/auth/register`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Fixture', email: 'scratch@example.test', password: 'secret123', confirmPassword: 'secret123', consent: { 'code:terms': true } }),
       });
-      const cookie = (register.headers as any).getSetCookie?.()[0] || register.headers.get('set-cookie');
+      assert.equal(registration.status, 201);
+      const cookie = registration.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
       assert.ok(cookie);
-
-      const response = await fetch(`${baseUrl}/api/code/ask/status?projectName=demo&rootPath=%2Ftmp%2Fdemo`, {
-        headers: { Cookie: cookie },
-      });
-      assert.equal(response.status, 200);
-      const payload = await response.json() as {
-        configured: boolean;
-        relayConfigured: boolean;
-        openAiConfigured: boolean;
-        canonicalTranscriptPath: string;
-        threadId: string;
-      };
-      assert.equal(payload.configured, true);
-      assert.equal(payload.relayConfigured, true);
-      assert.equal(payload.openAiConfigured, true);
-      assert.equal(payload.threadId, 'hydro-001_demo_hydro_chat');
-      assert.match(payload.canonicalTranscriptPath, /\/vvault_files\/users\/shard_0000\/.+\/instances\/hydro-001\/code\/demo_hydro_chat\.md$/);
-    });
-  } finally {
-    if (previousBaseUrl === undefined) {
-      delete process.env.VVAULT_API_BASE_URL;
-    } else {
-      process.env.VVAULT_API_BASE_URL = previousBaseUrl;
-    }
-    if (previousOpenAiKey === undefined) {
-      delete process.env.OPENAI_API_KEY;
-    } else {
-      process.env.OPENAI_API_KEY = previousOpenAiKey;
-    }
-  }
-});
-
-test('scratch project creation returns canonical project metadata and Ask readiness', async () => {
-  const previousBaseUrl = process.env.VVAULT_API_BASE_URL;
-  const previousOpenAiKey = process.env.OPENAI_API_KEY;
-  process.env.VVAULT_API_BASE_URL = 'https://vvault.example';
-  process.env.OPENAI_API_KEY = 'test-openai-key';
-  const originalFetch = globalThis.fetch;
-  const upstreamCalls: string[] = [];
-
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    if (url.startsWith('https://vvault.example')) {
-      upstreamCalls.push(url);
-      return new Response(JSON.stringify({ messages: [] }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    return originalFetch(input as any, init);
-  }) as typeof fetch;
-
-  try {
-    await withServer({}, async ({ baseUrl }) => {
-      const register = await fetch(`${baseUrl}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Devon',
-          email: 'devon@example.com',
-          password: 'secret123',
-          confirmPassword: 'secret123',
-          consent: { 'code:terms': true },
-        }),
-      });
-      const cookie = (register.headers as any).getSetCookie?.()[0] || register.headers.get('set-cookie');
-      assert.ok(cookie);
-
-      const response = await fetch(`${baseUrl}/api/code/projects/scratch`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: cookie,
-        },
-        body: JSON.stringify({
-          name: 'craft-world',
-          initialPrompt: 'prototype a survival sandbox',
-        }),
-      });
+      const headers = { 'Content-Type': 'application/json', Cookie: cookie };
+      assert.equal((await fetch(endpoint, { method: 'POST', headers, body: '{}' })).status, 400);
+      const response = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify({ name: 'craft-world', initialPrompt: 'prototype a sandbox' }) });
       assert.equal(response.status, 201);
-      const payload = await response.json() as {
-        project: { name: string; rootPath: string; starterIntent: string | null };
-        ask: { configured: boolean; canonicalTranscriptPath: string };
-      };
-      assert.equal(payload.project.name, 'craft-world');
-      assert.equal(payload.project.rootPath, '/workspaces/craft-world');
-      assert.equal(payload.project.starterIntent, 'prototype a survival sandbox');
-      assert.equal(payload.ask.configured, true);
-      assert.match(payload.ask.canonicalTranscriptPath, /\/vvault_files\/users\/shard_0000\/.+\/instances\/hydro-001\/code\/craft_world_hydro_chat\.md$/);
-      assert.equal(
-        upstreamCalls[0],
-        'https://vvault.example/api/chatty/transcript/hydro-001?projectName=craft-world&rootPath=%2Fworkspaces%2Fcraft-world',
-      );
+      const body = await response.json() as { project: { name: string; rootPath: string; starterIntent: string }; ask?: unknown };
+      assert.equal(body.project.name, 'craft-world');
+      assert.equal(body.project.rootPath, '/workspaces/craft-world');
+      assert.equal(body.project.starterIntent, 'prototype a sandbox');
+      assert.equal(body.ask, undefined);
     });
   } finally {
-    globalThis.fetch = originalFetch;
-    if (previousBaseUrl === undefined) {
-      delete process.env.VVAULT_API_BASE_URL;
-    } else {
-      process.env.VVAULT_API_BASE_URL = previousBaseUrl;
-    }
-    if (previousOpenAiKey === undefined) {
-      delete process.env.OPENAI_API_KEY;
-    } else {
-      process.env.OPENAI_API_KEY = previousOpenAiKey;
-    }
-  }
-});
-
-test('Ask Hydro message relay forwards attachments, grouping metadata, and canonical transcript path', async () => {
-  const previousBaseUrl = process.env.VVAULT_API_BASE_URL;
-  const previousOpenAiKey = process.env.OPENAI_API_KEY;
-  process.env.VVAULT_API_BASE_URL = 'https://vvault.example';
-  process.env.OPENAI_API_KEY = 'test-openai-key';
-  const originalFetch = globalThis.fetch;
-  let openAiBody: Record<string, unknown> | null = null;
-  const appendedMessages: Array<Record<string, unknown>> = [];
-
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    if (url === 'https://api.openai.com/v1/responses') {
-      openAiBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
-      return new Response(JSON.stringify({
-        id: 'resp_123',
-        output_text: 'Hydro is here.',
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url === 'https://vvault.example/api/chatty/transcript/hydro-001/message') {
-      appendedMessages.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.startsWith('https://vvault.example/api/chatty/transcript/hydro-001')) {
-      const assistantMetadata = appendedMessages.find((entry) => entry.role === 'assistant')?.metadata as Record<string, unknown> | undefined;
-      return new Response(JSON.stringify({
-        messages: [
-          {
-            id: 'msg-user-1',
-            role: 'user',
-            content: '<!-- hydro_message {"taskId":"task-existing","taskTitle":"Earlier request","taskKind":"regular","taskMode":"hydro","taskStartedAt":1711627200000,"taskCompleted":true,"checkpointSaved":true} -->\n### You\nhello',
-            timestamp: '2026-03-28T12:00:00.000Z',
-            attachments: [
-              {
-                id: 'att-1',
-                name: 'hello.txt',
-                mimeType: 'text/plain',
-                size: 5,
-                category: 'document',
-                storagePath: 'instances/hydro-001/documents/demo_hello.txt',
-              },
-            ],
-          },
-          {
-            id: 'msg-assistant-1',
-            role: 'assistant',
-            content: '<!-- hydro_message {"taskId":"task-existing","taskTitle":"Earlier request","taskKind":"regular","taskMode":"hydro","taskStartedAt":1711627200000,"taskCompleted":true,"checkpointSaved":true,"workDurationMs":12000} -->\n### Hydro\nHydro is here.',
-            timestamp: '2026-03-28T12:00:01.000Z',
-            metadata: assistantMetadata ?? {
-              provider: 'openai',
-              model: 'gpt-4o-mini',
-              modelKey: 'gpt-4o-mini',
-              modelLabel: 'GPT-4o mini',
-              askMode: 'hydro',
-              modeLabel: 'Hydro',
-              agentLabel: 'Hydro',
-            },
-          },
-        ],
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    return originalFetch(input as any, init);
-  }) as typeof fetch;
-
-  try {
-    await withServer({}, async ({ baseUrl }) => {
-      const register = await fetch(`${baseUrl}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Devon',
-          email: 'devon@example.com',
-          password: 'secret123',
-          confirmPassword: 'secret123',
-          consent: { 'code:terms': true },
-        }),
-      });
-      const cookie = (register.headers as any).getSetCookie?.()[0] || register.headers.get('set-cookie');
-      assert.ok(cookie);
-
-      const response = await fetch(`${baseUrl}/api/code/ask/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Cookie: cookie,
-        },
-        body: JSON.stringify({
-          content: 'hello',
-          projectName: 'demo',
-          rootPath: '/tmp/demo',
-          attachments: [
-            {
-              id: 'att-1',
-              name: 'hello.txt',
-              mimeType: 'text/plain',
-              size: 5,
-              category: 'document',
-              textContent: 'hello',
-            },
-          ],
-        }),
-      });
-      assert.equal(response.status, 200);
-      const payload = await response.json() as {
-        thread: {
-          id: string;
-          storageMode: string;
-          messages: Array<{
-            content: string;
-            taskTitle?: string;
-            taskKind?: string;
-            checkpointSaved?: boolean;
-          }>;
-        };
-      };
-      assert.equal(payload.thread.id, 'hydro-001_demo_hydro_chat');
-      assert.equal(payload.thread.storageMode, 'canonical');
-      assert.equal(openAiBody?.model, 'gpt-4o-mini');
-      assert.match(String(openAiBody?.instructions || ''), /Hydro/i);
-      assert.equal(appendedMessages.length, 2);
-      assert.equal(appendedMessages[0]?.transcriptPath, 'instances/hydro-001/code/demo_hydro_chat.md');
-      assert.equal(((appendedMessages[0]?.attachments as unknown[]) || []).length, 1);
-      assert.equal((appendedMessages[1]?.metadata as Record<string, unknown> | undefined)?.provider, 'openai');
-      assert.equal((appendedMessages[1]?.metadata as Record<string, unknown> | undefined)?.model, 'gpt-4o-mini');
-      assert.equal((appendedMessages[0]?.metadata as Record<string, unknown> | undefined)?.taskKind, 'regular');
-      assert.equal(typeof (appendedMessages[0]?.metadata as Record<string, unknown> | undefined)?.taskId, 'string');
-      assert.equal((appendedMessages[1]?.metadata as Record<string, unknown> | undefined)?.checkpointSaved, true);
-      assert.equal(typeof (appendedMessages[1]?.metadata as Record<string, unknown> | undefined)?.workDurationMs, 'number');
-      assert.equal(payload.thread.messages[0]?.content, 'hello');
-      assert.equal(payload.thread.messages[1]?.content, 'Hydro is here.');
-      assert.equal(payload.thread.messages[1]?.taskTitle, 'hello');
-      assert.equal(payload.thread.messages[1]?.taskKind, 'regular');
-      assert.equal(payload.thread.messages[1]?.checkpointSaved, true);
-    });
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (previousBaseUrl === undefined) {
-      delete process.env.VVAULT_API_BASE_URL;
-    } else {
-      process.env.VVAULT_API_BASE_URL = previousBaseUrl;
-    }
-    if (previousOpenAiKey === undefined) {
-      delete process.env.OPENAI_API_KEY;
-    } else {
-      process.env.OPENAI_API_KEY = previousOpenAiKey;
-    }
+    if (previous === undefined) delete process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES;
+    else process.env.AUTH_ENABLE_LEGACY_CODE_ROUTES = previous;
   }
 });
 
@@ -800,7 +514,7 @@ test('blocks credential login when product consent is missing', async () => {
   }
 });
 
-test('redirects OAuth callback to signup when product consent is missing', async () => {
+test('OAuth missing consent exposes enrollment and an authenticated consent continuation', async () => {
   const provider: OAuthProviderClient = {
     provider: 'google',
     label: 'Continue with Google',
@@ -833,10 +547,23 @@ test('redirects OAuth callback to signup when product consent is missing', async
         redirect: 'manual',
       },
     );
-    assert.equal(callback.status, 302);
-    assert.equal(callback.headers.get('location'), 'http://localhost:2048/?authModal=signup&reason=missing_consent');
-    const setCookie = (callback.headers as any).getSetCookie?.()[0] || callback.headers.get('set-cookie');
-    assert.equal(setCookie, null);
+    assert.equal(callback.status, 403);
+    assert.equal(callback.headers.get('location'), null);
+    assert.equal(callback.headers.get('cache-control'), 'no-store');
+    const body = await callback.json() as { state: string; requiresProductSignup: boolean; reason: string; consent: { method: string; url: string }; continuation: string };
+    assert.equal(body.state, 'ENROLLMENT_REQUIRED');
+    assert.equal(body.requiresProductSignup, true);
+    assert.equal(body.reason, 'missing_consent');
+    assert.equal(body.consent.method, 'POST');
+    assert.equal(body.consent.url, '/api/auth/consent?app=code');
+    assert.equal(body.continuation, 'http://localhost:2048/');
+    const cookie = callback.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
+    assert.ok(cookie);
+    const consent = await fetch(`${baseUrl}${body.consent.url}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ consent: { 'code:terms': true } }),
+    });
+    assert.equal(consent.status, 200);
   });
 });
 
@@ -932,33 +659,85 @@ test('live-lineage GRID routing and hosted native authorization preserve existin
       { headers: { 'X-Auth-App-Id': 'grid' }, redirect: 'manual' },
     );
     assert.equal(providerCallback.status, 302);
-    const consentUrl = new URL(providerCallback.headers.get('location') || '');
-    assert.equal(consentUrl.pathname, '/signin');
-    assert.equal(consentUrl.searchParams.get('reason'), 'missing_consent');
-    const sessionCookie = ((providerCallback.headers as any).getSetCookie?.()[0] || providerCallback.headers.get('set-cookie') || '').split(';')[0];
-    assert.ok(sessionCookie);
-    const consent = await fetch(`${baseUrl}/api/auth/consent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Auth-App-Id': 'grid',
-        Cookie: sessionCookie,
-      },
-      body: JSON.stringify({ consent: {
-        grid_terms_v1: true,
-        grid_privacy_v1: true,
-        grid_eeccd_v1: true,
-      } }),
-    });
-    assert.equal(consent.status, 200);
-    const continuation = await fetch(
-      `${baseUrl}/oauth/authorize/complete?authorization_request=${encodeURIComponent(signinUrl.searchParams.get('authorization_request') || '')}`,
-      { headers: { 'X-Auth-App-Id': 'grid', Cookie: sessionCookie }, redirect: 'manual' },
-    );
-    assert.equal(continuation.status, 302);
-    const loopback = new URL(continuation.headers.get('location') || '');
-    assert.equal(loopback.hostname, '127.0.0.1');
+    const loopback = new URL(providerCallback.headers.get('location') || '');
+    assert.equal(loopback.origin, 'http://127.0.0.1:49152');
     assert.equal(loopback.pathname, '/grid-natives-callback');
-    assert.ok(loopback.searchParams.get('code'));
+    assert.equal(loopback.searchParams.get('error'), 'enrollment_required');
+    assert.equal(loopback.searchParams.get('state'), 's'.repeat(32));
+    assert.equal(loopback.searchParams.get('code'), null);
+    assert.equal(providerCallback.headers.get('set-cookie'), null);
+
+    // Explicit signup acceptance is snapshotted by the authority, not inferred from sign-in.
+    authorize.searchParams.set('accept_required_consent', 'true');
+    authorize.searchParams.set('provider', 'github');
+    const signupStart = await fetch(authorize, { headers: { 'X-Auth-App-Id': 'grid' }, redirect: 'manual' });
+    const signupProviderUrl = new URL(signupStart.headers.get('location') || '');
+    const signupProvider = await fetch(`${baseUrl}${signupProviderUrl.pathname}${signupProviderUrl.search}`, { headers: { 'X-Auth-App-Id': 'grid' }, redirect: 'manual' });
+    const signupState = new URL(signupProvider.headers.get('location') || '').searchParams.get('state');
+    assert.ok(signupState);
+    const signupCallback = await fetch(`${baseUrl}/api/auth/github/callback?code=signup&state=${encodeURIComponent(signupState)}`, { headers: { 'X-Auth-App-Id': 'grid' }, redirect: 'manual' });
+    assert.equal(signupCallback.status, 302);
+    const continuationUrl = new URL(signupCallback.headers.get('location') || '');
+    assert.equal(continuationUrl.pathname, '/oauth/authorize/complete');
+    const cookie = signupCallback.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
+    assert.ok(cookie);
+    const completed = await fetch(`${baseUrl}${continuationUrl.pathname}${continuationUrl.search}`, { headers: { 'X-Auth-App-Id': 'grid', Cookie: cookie }, redirect: 'manual' });
+    const signupResult = new URL(completed.headers.get('location') || '');
+    assert.equal(signupResult.pathname, '/grid-natives-callback');
+    assert.ok(signupResult.searchParams.get('code'));
+    assert.equal(signupResult.searchParams.get('state'), 's'.repeat(32));
+    assert.equal(signupResult.searchParams.get('error'), null);
+  });
+});
+
+// Recovered from the pre-snapshot test contract at 3fe8da9^.
+test('rotates refresh tokens and revokes the token family on replay', async () => {
+  await withServer({}, async ({ baseUrl }) => {
+    const register = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Devon',
+        email: 'rotate-test@example.com',
+        password: 'secret123',
+        confirmPassword: 'secret123',
+        consent: { 'code:terms': true },
+      }),
+    });
+    assert.equal(register.status, 201);
+    const initialCookies = register.headers.getSetCookie();
+    assert.equal(initialCookies.length, 2);
+    assert.ok(initialCookies.some((cookie) => /^auth_sid=/.test(cookie) && /Max-Age=900/.test(cookie) && /HttpOnly/i.test(cookie)));
+    assert.ok(initialCookies.some((cookie) => /^auth_rid=/.test(cookie) && /Max-Age=2592000/.test(cookie) && /HttpOnly/i.test(cookie)));
+    const initialCookieHeader = initialCookies.map(value => value.split(';')[0]).join('; ');
+
+    const meSignedIn = await fetch(`${baseUrl}/api/me`, {
+      headers: { Cookie: initialCookieHeader },
+    });
+    assert.equal(meSignedIn.status, 200);
+
+    const refresh = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { Cookie: initialCookieHeader },
+    });
+    assert.equal(refresh.status, 200);
+    const rotatedCookies = refresh.headers.getSetCookie();
+    assert.equal(rotatedCookies.length, 2);
+    const rotatedCookieHeader = rotatedCookies.map(value => value.split(';')[0]).join('; ');
+    assert.notEqual(rotatedCookieHeader, initialCookieHeader);
+
+    const replay = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { Cookie: initialCookieHeader },
+    });
+    assert.equal(replay.status, 401);
+    const replayPayload = await replay.json() as { ok: boolean; errorCode?: string };
+    assert.equal(replayPayload.ok, false);
+    assert.equal(replayPayload.errorCode, 'REFRESH_TOKEN_REPLAY');
+
+    const meAfterReplay = await fetch(`${baseUrl}/api/me`, {
+      headers: { Cookie: rotatedCookieHeader },
+    });
+    assert.equal(meAfterReplay.status, 401);
   });
 });
