@@ -376,6 +376,12 @@
       "authority": "3fe8da9 config/chatty.json",
       "change": "Two stale localhost assertions updated to committed production origins, preserving selector injection rejection and adding explicit localhost rejection",
       "runtime_change": false
+    },
+    {
+      "path": "scripts/test-resource-authorization.mjs",
+      "authority": "9187d73 frozen Milestone test additions; docs/RESOURCE_AUTHORIZATION_V1.md runtime/owner-admission compatibility requirement",
+      "change": "Add existing resourceRuntime and vvaultOwnerAdmission suites to older recovered resource runner; removes no tests",
+      "runtime_change": false
     }
   ]
 }

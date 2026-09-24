@@ -16,7 +16,7 @@ try {
   writeFileSync(join(temporary, 'package.json'), '{"type":"module"}\n');
   for (const name of ['node_modules', 'scripts', 'config']) symlinkSync(join(root, name), join(temporary, name), 'dir');
   run(['node_modules/typescript/bin/tsc', '--outDir', join(temporary, 'dist')]);
-  run(['--test', ...['resourceAuthorization', 'resourceAuthorizationRoute', 'resourceGrantStore', 'authorizationCode', 'vvaultAccessAssertion', 'vvaultAccessAssertionRoute']
+  run(['--test', ...['resourceAuthorization', 'resourceAuthorizationRoute', 'resourceGrantStore', 'resourceRuntime', 'vvaultOwnerAdmission', 'authorizationCode', 'vvaultAccessAssertion', 'vvaultAccessAssertionRoute']
     .map(name => join(temporary, 'dist/test', `${name}.test.js`))]);
   run(['--test', 'src/test/native-client-binding.test.mjs', 'src/test/provider-identity-tokens.test.mjs', 'src/test/resource-authorization-wizard.test.mjs']);
 } finally { rmSync(temporary, { recursive: true, force: true }); }
