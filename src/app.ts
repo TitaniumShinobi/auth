@@ -1,6 +1,7 @@
 import { verifyVvaultSessionProof, verifyChattyConsentManifest } from './auth/vvaultSessionFederation.js';
 import { createEnrollmentConsent } from './auth/enrollmentConsent.js';
 import { mountEnrollmentHost } from './auth/enrollmentHost.js';
+import { deriveNativeClientBinding, registeredNativeClientBinding } from './auth/nativeClientBinding.js';
 import { renderHostedAuthorizationPage } from './auth/hostedAuthorizationPage.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -1484,6 +1485,12 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
   await ephemeralStore.initialize();
   logStartupStage('database_initialized');
 
+  async function currentNativeBinding(binding: SessionUser['nativeClient']) {
+    if (!binding) return undefined;
+    const config = await configStore.getConfig({ query: { app: binding.applicationId }, headers: {} });
+    return registeredNativeClientBinding(config, binding) || undefined;
+  }
+
   function reqWithOriginHint(req: any, origin?: string) {
     if (!origin) return req;
     return {
@@ -1560,9 +1567,12 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     clientId?: string,
   ) {
     const sessionId = crypto.randomUUID();
+    const nativeClient = clientId ? deriveNativeClientBinding(config, clientId) : null;
+    if (clientId && !nativeClient) throw new Error('NATIVE_CLIENT_REGISTRATION_REQUIRED');
+    const boundSession = { ...sessionUser, ...(nativeClient ? { nativeClient } : {}) };
     const refreshTokenId = crypto.randomUUID();
     const metadata = requestMetadataHashes(req, tokenConfig);
-    const refreshToken = await createRefreshToken(user.id, sessionId, tokenConfig, clientId, sessionUser.providerIdentity);
+    const refreshToken = await createRefreshToken(user.id, sessionId, tokenConfig, clientId, sessionUser.providerIdentity, nativeClient || undefined);
     const refreshTokenHash = hashRefreshToken(refreshToken.token, tokenConfig);
     await refreshTokenStore.createSession({
       sessionId,
@@ -1584,7 +1594,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         : config.app.id === 'vvault'
           ? 'vvault'
           : undefined;
-    const accessToken = await createAccessToken(sessionUser, sessionId, tokenConfig, relyingPartyId);
+    const accessToken = await createAccessToken(boundSession, sessionId, tokenConfig, relyingPartyId);
     return {
       accessToken: accessToken.token,
       accessJti: accessToken.jti,
@@ -1644,6 +1654,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       // Preserve the relying party already verified from the access token.
       // Profile refresh cannot derive it from account or owner records.
       ...(session.relyingPartyId ? { relyingPartyId: session.relyingPartyId } : {}),
+      ...(session.nativeClient ? { nativeClient: session.nativeClient } : {}),
     };
     const refreshed = nextSession.id !== session.id
       || nextSession.sub !== session.sub
@@ -2028,9 +2039,11 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         const verified = await verifyRefreshToken(raw, tokenConfig);
         if (!verified) return oauthError(res, 400, 'invalid_grant');
         if (!verified.clientId || verified.clientId !== String(req.body?.client_id || '')) return oauthError(res, 400, 'invalid_grant');
+        const nativeClient = await currentNativeBinding(verified.nativeClient);
+        if (verified.nativeClient && !nativeClient) return oauthError(res, 400, 'invalid_grant');
         const user = await storage.findUserById(verified.userId);
         if (!user) return oauthError(res, 400, 'invalid_grant');
-        const newRefresh = await createRefreshToken(user.id, verified.sessionId, tokenConfig, verified.clientId, verified.providerIdentity);
+        const newRefresh = await createRefreshToken(user.id, verified.sessionId, tokenConfig, verified.clientId, verified.providerIdentity, nativeClient);
         const rotation = await refreshTokenStore.rotateRefreshToken({
           sessionId: verified.sessionId,
           userId: user.id,
@@ -2048,7 +2061,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
           return oauthError(res, 400, 'invalid_grant');
         }
         const access = await createAccessToken(
-          await buildSessionForUser(user, verified.providerIdentity), verified.sessionId, tokenConfig,
+          { ...await buildSessionForUser(user, verified.providerIdentity), ...(nativeClient ? { nativeClient } : {}) }, verified.sessionId, tokenConfig,
           verified.clientId === 'chatty-cli' ? 'chatty-cli' : undefined,
         );
         return res.json({ access_token: access.token, refresh_token: newRefresh.token, token_type: 'Bearer', expires_in: tokenConfig.accessTtlSeconds });

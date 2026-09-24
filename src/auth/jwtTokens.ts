@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import { SignJWT, jwtVerify, errors as JoseErrors } from 'jose';
 
-import type { AccountContextReadinessV1, SessionUser } from '../types.js';
+import type { AccountContextReadinessV1, NativeClientBinding, SessionUser } from '../types.js';
+import { normalizeNativeClientBinding } from './nativeClientBinding.js';
 import { normalizeVerifiedProviderIdentity, type VerifiedProviderIdentity } from './canonicalOwner.js';
 
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
@@ -31,6 +32,7 @@ export type VerifiedRefreshToken = {
   jti: string;
   exp: number;
   clientId?: string;
+  nativeClient?: NativeClientBinding;
   providerIdentity?: VerifiedProviderIdentity;
 };
 
@@ -152,6 +154,8 @@ export async function createAccessToken(
   config: JwtTokenConfig,
   relyingPartyId?: SessionUser['relyingPartyId'],
 ): Promise<IssuedAccessToken> {
+  const nativeClient = normalizeNativeClientBinding(user.nativeClient);
+  if (user.nativeClient !== undefined && !nativeClient) throw new Error('INVALID_NATIVE_CLIENT_BINDING');
   const providerIdentity = normalizeVerifiedProviderIdentity(user.providerIdentity);
   if (user.providerIdentity !== undefined && !providerIdentity) throw new Error('INVALID_PROVIDER_IDENTITY');
   const now = secondsNow();
@@ -159,6 +163,7 @@ export async function createAccessToken(
   const jti = crypto.randomUUID();
   const token = await new SignJWT({
     token_use: 'access',
+    ...(nativeClient ? { native_client: nativeClient } : {}),
     sid: sessionId,
     id: user.id,
     uid: user.uid,
@@ -194,6 +199,8 @@ export async function verifyAccessToken(token: string, config: JwtTokenConfig): 
     });
     const raw = payload as Record<string, unknown>;
     if (raw.token_use !== 'access') return null;
+    const nativeClient = normalizeNativeClientBinding(raw.native_client);
+    if (raw.native_client !== undefined && !nativeClient) return null;
     const providerIdentity = normalizeVerifiedProviderIdentity(raw.provider_identity);
     if (raw.provider_identity !== undefined && !providerIdentity) return null;
     const sessionId = requireStringClaim(raw, 'sid');
@@ -219,6 +226,7 @@ export async function verifyAccessToken(token: string, config: JwtTokenConfig): 
       jti,
       exp: payload.exp,
       session: {
+        ...(nativeClient ? { nativeClient } : {}),
         id,
         sub,
         uid,
@@ -249,7 +257,10 @@ export async function createRefreshToken(
   config: JwtTokenConfig,
   clientId?: string,
   proof?: VerifiedProviderIdentity,
+  binding?: NativeClientBinding,
 ): Promise<IssuedRefreshToken> {
+  const nativeClient = normalizeNativeClientBinding(binding);
+  if (binding !== undefined && (!nativeClient || nativeClient.clientId !== clientId)) throw new Error('INVALID_NATIVE_CLIENT_BINDING');
   const providerIdentity = normalizeVerifiedProviderIdentity(proof);
   if (proof !== undefined && !providerIdentity) throw new Error('INVALID_PROVIDER_IDENTITY');
   const now = secondsNow();
@@ -257,6 +268,7 @@ export async function createRefreshToken(
   const jti = crypto.randomUUID();
   const token = await new SignJWT({
     token_use: 'refresh',
+    ...(nativeClient ? { native_client: nativeClient } : {}),
     ...(providerIdentity ? { provider_identity: providerIdentity } : {}),
     sid: sessionId,
     ...(clientId ? { client_id: clientId } : {}),
@@ -286,9 +298,12 @@ export async function verifyRefreshToken(token: string, config: JwtTokenConfig):
     });
     const raw = payload as Record<string, unknown>;
     if (raw.token_use !== 'refresh') return null;
+    const nativeClient = normalizeNativeClientBinding(raw.native_client);
+    if (raw.native_client !== undefined && !nativeClient) return null;
     const providerIdentity = normalizeVerifiedProviderIdentity(raw.provider_identity);
     if (raw.provider_identity !== undefined && !providerIdentity) return null;
     const sessionId = requireStringClaim(raw, 'sid');
+    if (nativeClient && nativeClient.clientId !== requireStringClaim(raw, 'client_id')) return null;
     const userId = typeof payload.sub === 'string' ? payload.sub.trim() : '';
     const jti = typeof payload.jti === 'string' ? payload.jti.trim() : '';
     if (!sessionId || !userId || !jti || typeof payload.exp !== 'number') return null;
@@ -298,6 +313,7 @@ export async function verifyRefreshToken(token: string, config: JwtTokenConfig):
       jti,
       exp: payload.exp,
       clientId: requireStringClaim(raw, 'client_id') || undefined,
+      ...(nativeClient ? { nativeClient } : {}),
       ...(providerIdentity ? { providerIdentity } : {}),
     };
   } catch (error) {

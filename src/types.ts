@@ -68,7 +68,14 @@ export type AuthPublicClient = {
   scopes?: string[];
 };
 
+export type NativeClientBinding = {
+  clientId: string;
+  applicationId: string;
+};
+
 export type SessionUser = {
+  /** Signed native-client identity; current registration must still be checked. */
+  nativeClient?: NativeClientBinding;
   providerIdentity?: import('./auth/canonicalOwner.js').VerifiedProviderIdentity;
   id: string;
   sub: string;
