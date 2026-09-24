@@ -23,14 +23,15 @@ test('Chatty browser-link registration accepts only its exact product callback',
   const config = JSON.parse(readFileSync(new URL('../../config/chatty.json', import.meta.url), 'utf8')) as AuthAppConfig;
   const client = config.publicClients!.find(client => client.clientId === 'chatty-web-link')!;
   assert.ok(client);
-  assert.equal(validateRedirectUri(client, 'http://localhost:5173/auth/connect-callback'), 'http://localhost:5173/auth/connect-callback');
-  assert.equal(validateRedirectUri(client, 'http://localhost:5173/auth/connect-callback?next=https://evil.example'), null);
+  assert.equal(validateRedirectUri(client, 'https://chatty.thewreck.org/auth/connect-callback'), 'https://chatty.thewreck.org/auth/connect-callback');
+  assert.equal(validateRedirectUri(client, 'https://chatty.thewreck.org/auth/connect-callback?next=https://evil.example'), null);
   assert.equal(validateRedirectUri(client, 'http://evil.example/auth/connect-callback'), null);
   assert.equal(validateRedirectUri(client, 'http://localhost:5999/auth/connect-callback'), null);
+  assert.equal(validateRedirectUri(client, 'http://localhost:5173/auth/connect-callback'), null);
   assert.ok(config.publicClients!.some(client => client.clientId === 'chatty-cli'));
 });
 
-test('Chatty public client uses the canonical localhost browser origins', () => {
+test('Chatty public client uses the committed production browser origins', () => {
   const chattyConfig = JSON.parse(
     readFileSync(new URL('../../config/chatty.json', import.meta.url), 'utf8'),
   ) as AuthAppConfig;
@@ -39,10 +40,10 @@ test('Chatty public client uses the canonical localhost browser origins', () => 
   );
 
   assert.deepEqual(chattyConfig.allowedOrigins, [
-    'http://localhost:5173',
-    'http://localhost:5050',
+    'https://chatty.thewreck.org',
+    'https://chatty.thewreck.org',
   ]);
-  assert.equal(cliClient?.authorizationUiUrl, 'http://localhost:5173/login');
+  assert.equal(cliClient?.authorizationUiUrl, 'https://chatty.thewreck.org/login');
 });
 
 const config: AuthAppConfig = {

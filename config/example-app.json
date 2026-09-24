@@ -1,0 +1,63 @@
+{
+  "app": {
+    "id": "example-app",
+    "name": "Example App",
+    "brandTagline": "Sign in securely."
+  },
+  "oauth": {
+    "envPrefix": "MYAPP"
+  },
+  "allowedOrigins": [
+    "http://localhost:3000"
+  ],
+  "redirects": {
+    "postLoginPath": "/",
+    "postLogoutPath": "/"
+  },
+  "credentials": {
+    "enabled": true
+  },
+  "publicClients": [
+    {
+      "clientId": "example-native",
+      "authorizationUiUrl": "http://localhost:3000/login",
+      "loopback": {
+        "hosts": ["127.0.0.1", "::1"],
+        "path": "/native-auth-callback",
+        "allowDynamicPorts": true
+      },
+      "scopes": ["openid", "profile", "email"]
+    }
+  ],
+  "docs": [
+    {
+      "product": "example-app",
+      "docType": "terms",
+      "key": "example-app:terms",
+      "version": "1",
+      "label": "Example App Terms of Use",
+      "url": "http://localhost:3000/terms",
+      "required": false
+    },
+    {
+      "product": "example-app",
+      "docType": "privacy",
+      "key": "example-app:privacy",
+      "version": "1",
+      "label": "Example App Privacy Notice",
+      "url": "http://localhost:3000/privacy",
+      "required": false
+    }
+  ],
+  "turnstile": {
+    "required": false,
+    "enabled": false
+  },
+  "providers": [
+    {
+      "provider": "google",
+      "label": "Continue with Google",
+      "enabled": true
+    }
+  ]
+}

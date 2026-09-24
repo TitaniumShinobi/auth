@@ -318,6 +318,24 @@
       "role": "existing enrollment runtime prerequisite and contract test dependency",
       "necessary_for": "Existing enrollmentHost dynamic import and enrollment-handoff suite",
       "runtime_impact": "Restores missing approved module at pre-existing configured enrollment route; no change to Milestone resource runtime"
+    },
+    {
+      "path": "config/example-app.json",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "0b146007ed25e0512f2e4a63b2c3ba657a0061e8",
+      "sha256": "8ae13647591a0481388587b32aa487121581f97334d17d753a617dfa450248df",
+      "classification": "B",
+      "role": "pre-existing DEFAULT_CONFIG_PATH runtime prerequisite used by startup suite",
+      "necessary_for": "src/config.ts DEFAULT_CONFIG_PATH explicitly names this file; source snapshot contains exact config",
+      "runtime_impact": "Restores omitted default example profile when no explicit deployment config selected; production configs and Milestone policy unchanged"
+    }
+  ],
+  "corrections": [
+    {
+      "path": "src/test/authorizationCode.test.ts",
+      "authority": "3fe8da9 config/chatty.json",
+      "change": "Two stale localhost assertions updated to committed production origins, preserving selector injection rejection and adding explicit localhost rejection",
+      "runtime_change": false
     }
   ]
 }
