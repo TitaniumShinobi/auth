@@ -28,3 +28,14 @@ Baseline TypeScript build: PASS. All tracked baseline test files (auth, oauth, g
 The frozen package.json normal test wrapper references absent bin/node20, bin/npm20, wizard files, authorizationCode.test.ts, startup.test.ts, providerOwnerFlow.test.ts and ownerDatasourceKeychain.test.ts. The latter four have no file history in available refs. This recovery does not import untracked architecture to pretend those suites exist. Receipts name the actual complete tracked suites run via the existing Node runtime. This is a remaining packaging/test-entrypoint blocker, not a waiver or a claim that npm test passes.
 
 Production rollback reference remains 8ef31a3fe902bad241cbbe8c361b1eb46a9d25a7. Source tests establish no live acceptance. Credential rotation/re-homing remains an independent hard production gate.
+
+## Replayed candidate
+
+- Baseline recovery: `22ea42df0b8d2e02a5ee1081bb2e52cf6e52932e`.
+- Native binding `577a6db` replayed as `a899f93edcca46e6f412e237a097ce47b1321d42` without conflicts.
+- Milestone 1 `9187d73` replayed as `449fae9c134bd0a907c48972301cb76d2d0b312c` without conflicts.
+- Fetch typing `5e6e857` reconciled as `eb6e5c7fa7cbf741fb36939914c4d05ede6899f1`: obsolete Hydro mock hunks conflicted; the replacement no-upstream spy now uses the same `Parameters<typeof fetch>` types. This was not a clean textual cherry-pick and no conflict was hidden.
+- Runtime source, config/resource-policies.json and types match frozen `5e6e857` exactly. Only baseline tests, fetch-spy typing and this evidence document differ.
+- Final build PASS; all tracked suites 96 passed / 0 failed / 0 skipped. Both Python compatibility tests ran against read-only VVAULT `ed1959990901da092a83638b61d9a5943b13b86c`, using its existing Python runtime with bytecode writing disabled.
+
+The supplemental source manifest supersedes `/private/tmp/auth-m1-final.sha256` for this candidate only. It does not activate a release or resolve the missing tracked package entrypoint/test files. The complete tracked AUTH/OAuth suite is green; `npm test` is NOT claimed green. Restoring a self-contained package/test entrypoint remains AUTH release-packaging work. The new candidate must not be described as production-ready until that gap and independent credential/provenance/approval gates are resolved.
