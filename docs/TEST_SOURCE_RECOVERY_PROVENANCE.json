@@ -168,6 +168,146 @@
       "sha256": "4c4b58a7131775a22c09ac3b0e9e4e812d6facd8bf306d8a1b62c18124055f37",
       "role": "test",
       "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+    },
+    {
+      "path": "scripts/auth-assertion-repair.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "df9c6386a352148ed0159aa88a77b3344897e759",
+      "sha256": "509468f135adc6974f34b47dadb62d8b0199c8931746e8d986b79d5f6d8c5eba",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "Bounded repair suite host contract",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-authority-conformance.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "39680d26b32e36bd4bfc0ea1ce880ee157942517",
+      "sha256": "5b80385290e044fef28c8e4abbe7c16f2efa1f032dda522ba99e47c567a0d637",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "CLI conformance dispatch dependency",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-blocker-handoff.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "83b9306cf990d8b13a8c4b2b5dccab61d4ebed84",
+      "sha256": "a1f52a391bfe5f15006e67c3e1761579fa94af1369d5772342e2b389598c716f",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "Wizard and CLI blocker output",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-capability-catalog.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "79a45d9dc15800d77451f92a8602dcae6d62c8d6",
+      "sha256": "a3a120567739d379c00994049959b435b613b874e983bce3b6e57a0ef85eda2d",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "Executable capability identifiers and checks",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-cli.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "869c512af3d079dfa585d17d1ade54da7b49edd5",
+      "sha256": "42b1f52a0d3cc48b9e5085bbdc6139451f09f7ca078fed8dd460c1d9b1661751",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "CLI subprocess entrypoint tested by canonical suite",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-conformance-binding.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "6fd9f9fdba426ff704918047b0d011e510675e7d",
+      "sha256": "261d44c48364f2e34a8d55cebaf6da48b7df1a22708886cd6ec0f910dcf73c80",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "Evidence digest/config/expiry validation",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-conformance-fixture-worker.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "e78b6b51a91a029ca7514d256d8016f43d1dafeb",
+      "sha256": "747a36ad97d0415429b7edf39ab99d1d1d8d4967a2a2de7ef8f6433715ea87cc",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "Isolated child fixture executable",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-conformance-fixture.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "cb391ac371bec949c875cff684cfc4430b774c2f",
+      "sha256": "f72b653518bbda9509c7770ba05406eefd11b6b692e7a2bd87a33ec21274e4c6",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "Fixture isolation, artifact copying, cleanup",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-evidence-ownership.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "bb5aaf6a1397d238b6ec48fcf1debebf935b4530",
+      "sha256": "e78d25044c75630611708683152ec4608d1989adf24149b15c931be4ca755898",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "Ownership-aware evidence aggregation",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-lifecycle.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "4a571f530e82b1f9b84e862e5941418a5684374e",
+      "sha256": "db000fd153e042e3971c0cc69fdf81d237c587511fe1960a075c12e749324785",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "Lifecycle trace validation",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-runtime-acceptance.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "b19c2aa098c87d0948ea668f9f8168ee9a8a980c",
+      "sha256": "baf447d9e0ed4c6ff91ad587d893be80db314eacd2a6a4abe536c48204e2a817",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "CLI runtime acceptance dispatch dependency",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-verification-profiles.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "4fc3f617488f6adffedbd501a7be0b78c6020da1",
+      "sha256": "f399ec036b110e049517e5b53e7c9d1d1e374699fb40b898a1c1f89e14c35918",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "Profile requirement evaluation",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "scripts/auth-wizard.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "9702c1dbc84f577a71723519d1839937405ae742",
+      "sha256": "501a1abbc6ab8eeffd0c853cb7667a4ece4e39f399e02f8de043e70aaa4d903e",
+      "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
+      "role": "operator-tool dependency (not imported by serving AUTH runtime)",
+      "necessary_for": "OBSERVE/ASSESS/DECIDE/VERIFY and scoped ACT",
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+    },
+    {
+      "path": "templates/auth-adapter/ADAPTER.md",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "b6171e9774842e1f13ce01b4febfbd01412258e2",
+      "sha256": "ffdcf93ece863aeb5306096157265714da081339cd81619b026ed1030ca5d018",
+      "classification": "B",
+      "role": "operator setup template",
+      "necessary_for": "CLI setup copy target",
+      "runtime_impact": "None until explicitly authorized setup"
     }
   ]
 }
