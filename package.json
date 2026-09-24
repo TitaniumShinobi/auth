@@ -18,7 +18,8 @@
     "test:wizard": "bin/node20 --test src/test/auth-wizard.test.mjs src/test/auth-lifecycle.test.mjs scripts/auth-cli.test.mjs src/test/auth-welcome.test.mjs src/test/auth-blocker-handoff.test.mjs src/test/auth-evidence-ownership.test.mjs src/test/auth-verification-profiles.test.mjs src/test/auth-assertion-repair.test.mjs src/test/canonical-owner.test.mjs src/test/provider-identity-tokens.test.mjs src/test/product-session-provider-proof.test.mjs src/test/enrollment-handoff.test.mjs src/test/enrollment-wizard.test.mjs",
     "test:conformance": "bin/node20 --test src/test/auth-conformance-fixture.test.mjs",
     "test:assertion-repair": "bin/node20 --test src/test/auth-assertion-repair.test.mjs src/test/canonical-owner.test.mjs src/test/provider-identity-tokens.test.mjs src/test/product-session-provider-proof.test.mjs",
-    "test:enrollment": "bin/node20 --test src/test/enrollment-handoff.test.mjs src/test/enrollment-wizard.test.mjs"
+    "test:enrollment": "bin/node20 --test src/test/enrollment-handoff.test.mjs src/test/enrollment-wizard.test.mjs",
+    "test:resource-authorization": "bin/node20 scripts/test-resource-authorization.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

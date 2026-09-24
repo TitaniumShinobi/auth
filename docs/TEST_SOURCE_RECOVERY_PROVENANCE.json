@@ -328,6 +328,46 @@
       "role": "pre-existing DEFAULT_CONFIG_PATH runtime prerequisite used by startup suite",
       "necessary_for": "src/config.ts DEFAULT_CONFIG_PATH explicitly names this file; source snapshot contains exact config",
       "runtime_impact": "Restores omitted default example profile when no explicit deployment config selected; production configs and Milestone policy unchanged"
+    },
+    {
+      "path": "scripts/test-resource-authorization.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "35f1de6d498cd9b8e0e6521698f96c202cdc7fae",
+      "sha256": "74d44232837cc38d6f840566f8891b5b215f77d66913e7033e344858c6f28884",
+      "classification": "B",
+      "role": "test-only documented supplemental resource runner closure",
+      "necessary_for": "docs/RESOURCE_AUTHORIZATION_V1.md canonical test:resource-authorization invocation",
+      "runtime_impact": "None; tests use existing modules and synthetic login fixture"
+    },
+    {
+      "path": "src/test/resource-authorization-wizard.test.mjs",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "050686658710aa101d9820f8e7e96202f706e61c",
+      "sha256": "d72c013fda5afd8bbe2cc067db38564e1476d7d51cb68dc30af99f161bd48ee0",
+      "classification": "B",
+      "role": "test-only documented supplemental resource runner closure",
+      "necessary_for": "docs/RESOURCE_AUTHORIZATION_V1.md canonical test:resource-authorization invocation",
+      "runtime_impact": "None; tests use existing modules and synthetic login fixture"
+    },
+    {
+      "path": "src/test/vvaultAccessAssertion.test.ts",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "eb68767ac79161fac1bebf28f890e01f5cee6ed6",
+      "sha256": "196fd090b14e50e793033ab4f5e95b531437cf2463b5c6587de200fb32f00aa6",
+      "classification": "B",
+      "role": "test-only documented supplemental resource runner closure",
+      "necessary_for": "docs/RESOURCE_AUTHORIZATION_V1.md canonical test:resource-authorization invocation",
+      "runtime_impact": "None; tests use existing modules and synthetic login fixture"
+    },
+    {
+      "path": "src/test/vvaultAccessAssertionRoute.test.ts",
+      "source": "85021aaf55e9992e5adaa1fe777f4712d4e389b4",
+      "blob": "01e1311a4e7ed8c48bdd466a24e392b6f9ee5403",
+      "sha256": "81bf360ac729968d95522d25493c84920bd554bae9bea3aaad3b50f61a68f54a",
+      "classification": "B",
+      "role": "test-only documented supplemental resource runner closure",
+      "necessary_for": "docs/RESOURCE_AUTHORIZATION_V1.md canonical test:resource-authorization invocation",
+      "runtime_impact": "None; tests use existing modules and synthetic login fixture"
     }
   ],
   "corrections": [
