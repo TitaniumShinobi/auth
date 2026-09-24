@@ -248,7 +248,7 @@ for (const [label, route, method] of [
     const originalFetch = globalThis.fetch;
     let unexpectedCalls = 0;
     // No provider/transcript request is allowed from the compatibility route.
-    globalThis.fetch = async (input, init) => {
+    globalThis.fetch = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (!url.startsWith('http://127.0.0.1:')) {
         unexpectedCalls++;
