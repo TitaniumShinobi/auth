@@ -2,6 +2,8 @@ import { verifyVvaultSessionProof, verifyChattyConsentManifest } from './auth/vv
 import { createEnrollmentConsent } from './auth/enrollmentConsent.js';
 import { mountEnrollmentHost } from './auth/enrollmentHost.js';
 import { deriveNativeClientBinding, registeredNativeClientBinding } from './auth/nativeClientBinding.js';
+import { ResourceAuthorizationService, ResourceAuthorizationError, type ResourceAuthorizationOptions, type ResourceSession } from './auth/resourceAuthorization.js';
+import { mountResourceAuthorizationHost, type ResourceWorkload } from './auth/resourceAuthorizationHost.js';
 import { renderHostedAuthorizationPage } from './auth/hostedAuthorizationPage.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -1381,6 +1383,8 @@ function mapTranscriptPayloadToAskThread(payload: any, target: HydroAskTarget) {
 }
 
 type CreateAuthAppOptions = {
+  /** Explicit trusted host integration. No resource mapping or admission fallback is inferred. */
+  resourceAuthorization?: Omit<ResourceAuthorizationOptions, 'sessionActive'> & { workloads: readonly ResourceWorkload[] };
   magicEmailDelivery?: MagicEmailDelivery;
   storage?: StorageAdapter;
   refreshTokenStore?: RefreshTokenStore;
@@ -1490,6 +1494,19 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     const config = await configStore.getConfig({ query: { app: binding.applicationId }, headers: {} });
     return registeredNativeClientBinding(config, binding) || undefined;
   }
+
+  async function resourceSessionActive(session: ResourceSession) {
+    // Deliberately stricter than legacy browser fallback: an unavailable revocation
+    // store is not evidence of authorization. Errors propagate to a sanitized 503.
+    if (session.expiresAt <= Math.floor(Date.now() / 1000)
+      || await ephemeralStore.isAccessRevoked(session.accessJti)
+      || await ephemeralStore.isSessionRevoked(session.sessionId)
+      || await refreshTokenStore.getSessionStatus(session.sessionId) !== 'active') return false;
+    return Boolean(await currentNativeBinding({ clientId: session.clientId, applicationId: session.applicationId }));
+  }
+  const resourceService = options.resourceAuthorization
+    ? new ResourceAuthorizationService({ ...options.resourceAuthorization, sessionActive: resourceSessionActive }) : undefined;
+  await resourceService?.initialize();
 
   function reqWithOriginHint(req: any, origin?: string) {
     if (!origin) return req;
@@ -2246,6 +2263,22 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
   });
 
   mountEnrollmentHost(app, req => readAuthSession(req, cookieName, tokenConfig, refreshTokenStore, ephemeralStore), createEnrollmentConsent(storage, configStore));
+  mountResourceAuthorizationHost(app, {
+    service: resourceService,
+    workloads: options.resourceAuthorization?.workloads || [],
+    readSession: async req => {
+      const token = String(req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+      const verified = await verifyAccessToken(token, tokenConfig);
+      if (!verified?.session.nativeClient) throw new ResourceAuthorizationError('REAUTH_REQUIRED', 401);
+      const binding = verified.session.nativeClient;
+      const session: ResourceSession = {
+        subject: verified.session.sub, sessionId: verified.sessionId, accessJti: verified.jti,
+        expiresAt: verified.exp, clientId: binding.clientId, applicationId: binding.applicationId,
+      };
+      if (!await resourceSessionActive(session)) throw new ResourceAuthorizationError('REAUTH_REQUIRED', 401);
+      return session;
+    },
+  });
 
   app.post('/api/auth/vvault-access-assertion', async (req, res) => {
     if (req.get('X-Chatty-Auth-Bridge') !== 'vvault-access-assertion/v2') {
@@ -2840,9 +2873,13 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         return res.status(401).json({ ok: false, error: 'Refresh session expired' });
       }
 
-      const sessionUser = await buildSessionForUser(user, verifiedRefresh.providerIdentity);
+      const nativeClient = await currentNativeBinding(verifiedRefresh.nativeClient);
+      if (verifiedRefresh.nativeClient && !nativeClient) {
+        return res.status(401).json({ ok: false, errorCode: 'REAUTH_REQUIRED' });
+      }
+      const sessionUser = { ...await buildSessionForUser(user, verifiedRefresh.providerIdentity), ...(nativeClient ? { nativeClient } : {}) };
       const newRefreshTokenId = crypto.randomUUID();
-      const newRefreshToken = await createRefreshToken(user.id, verifiedRefresh.sessionId, tokenConfig, verifiedRefresh.clientId, verifiedRefresh.providerIdentity);
+      const newRefreshToken = await createRefreshToken(user.id, verifiedRefresh.sessionId, tokenConfig, verifiedRefresh.clientId, verifiedRefresh.providerIdentity, nativeClient);
       const newRefreshTokenHash = hashRefreshToken(newRefreshToken.token, tokenConfig);
       const metadata = requestMetadataHashes(req, tokenConfig);
       const rotation = await refreshTokenStore.rotateRefreshToken({

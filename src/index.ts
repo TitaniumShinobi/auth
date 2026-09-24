@@ -10,6 +10,7 @@ const logTiming = (name: string, extra = '') =>
 
 let state: StartupState = 'BOOTING';
 let initializationErrorCode: string | null = null;
+let resourceStatusServer: ReturnType<typeof import('node:https').createServer> | undefined;
 logTiming('process_spawn');
 logTiming('module_loading');
 
@@ -75,12 +76,41 @@ server.listen(port, host, () => {
       const moduleStartedAt = elapsedMs();
       const { createAuthApp } = await import('./app.js');
       logTiming('auth_modules_loaded');
-      const app = await createAuthApp({ configStore });
+      const { loadResourceRuntime, createResourceStatusServer } = await import('./auth/resourceRuntime.js');
+      let resourceRuntime;
+      try {
+        resourceRuntime = loadResourceRuntime();
+        if (resourceRuntime) {
+          await resourceRuntime.authorization.store.initialize();
+          resourceStatusServer = createResourceStatusServer(resourceRuntime, (req, res) => requestHandler(req, res));
+          const listener = resourceStatusServer;
+          await new Promise<void>((resolve, reject) => {
+            listener.once('error', reject);
+            listener.listen(resourceRuntime!.tls.port, resourceRuntime!.tls.host, () => {
+              listener.removeListener('error', reject);
+              resolve();
+            });
+          });
+          listener.on('error', () => {
+            listener.close();
+            console.error('[auth] resource status listener unavailable');
+          });
+          console.log('[auth] resource status mTLS listener configured; resource admission remains independently gated');
+        }
+      } catch {
+        resourceStatusServer?.close();
+        resourceStatusServer = undefined;
+        resourceRuntime = undefined;
+        // Optional resource failures must not replace legacy authentication or leak configuration.
+        console.error('[auth] resource runtime unavailable: RESOURCE_RUNTIME_CONFIGURATION_INVALID');
+      }
+      const app = await createAuthApp({ configStore, resourceAuthorization: resourceRuntime?.authorization });
       requestHandler = app as RequestListener;
       state = 'OPTIONAL_SERVICES_READY';
       logTiming('routes_ready', ` deferred_init_ms=${(elapsedMs() - moduleStartedAt).toFixed(2)}`);
       console.log('[auth] optional services ready');
     } catch (error) {
+      resourceStatusServer?.close();
       initializationErrorCode =
         error && typeof error === 'object' && 'code' in error
           ? String((error as { code?: unknown }).code || 'AUTH_INITIALIZATION_FAILED')
