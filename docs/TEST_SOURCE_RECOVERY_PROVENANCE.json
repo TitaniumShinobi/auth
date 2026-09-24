@@ -7,7 +7,9 @@
       "blob": "ad9bc4315d27c10754119e50e6b24f212905eb44",
       "sha256": "bb577ff151f3bab58fa9bd5fadb2fcec9422fc792a5cc80e2c9937d5cce2ea4e",
       "role": "launcher",
-      "classification": "A"
+      "classification": "A",
+      "recovered_sha256": "bb577ff151f3bab58fa9bd5fadb2fcec9422fc792a5cc80e2c9937d5cce2ea4e",
+      "byte_identical_to_source": true
     },
     {
       "path": "bin/node20",
@@ -15,7 +17,9 @@
       "blob": "5a6d34b7ab8f7bcfeabed801513f3b356dcb227d",
       "sha256": "80711bf040dd81017c7fc84cf84577551757c22d1a8dd679d8d9ddf59f25bd46",
       "role": "launcher",
-      "classification": "A"
+      "classification": "A",
+      "recovered_sha256": "80711bf040dd81017c7fc84cf84577551757c22d1a8dd679d8d9ddf59f25bd46",
+      "byte_identical_to_source": true
     },
     {
       "path": "bin/npm20",
@@ -23,7 +27,9 @@
       "blob": "04ad5480be17f4f0505637da655dcfddf1f53eb6",
       "sha256": "5ed38b50a2c4947ca8aab270e9b20100c6d110fdc36c470c8a773ccf0f66f0db",
       "role": "launcher",
-      "classification": "A"
+      "classification": "A",
+      "recovered_sha256": "5ed38b50a2c4947ca8aab270e9b20100c6d110fdc36c470c8a773ccf0f66f0db",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/authorizationCode.test.ts",
@@ -31,7 +37,9 @@
       "blob": "77c12a34a2494e7c68f2d18e21c62e6dacb55ba2",
       "sha256": "928483c2109aae6776d1ac3ff3f92eefeb03731f15b175ae39ca7f01f14cf368",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "18867614eb4480d7c86de95d0037f705ec523d86cdb9d63500366bbf3b4f0ed2",
+      "byte_identical_to_source": false
     },
     {
       "path": "src/test/ownerDatasourceKeychain.test.ts",
@@ -39,7 +47,9 @@
       "blob": "4db029169e351dba9460e97d7b12c8272e00648e",
       "sha256": "cf558d3b8668861ff9fef9b4c6e59847c1646635dd387bc0beb9c34c2a6a3d30",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "cf558d3b8668861ff9fef9b4c6e59847c1646635dd387bc0beb9c34c2a6a3d30",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/providerOwnerFlow.test.ts",
@@ -47,7 +57,9 @@
       "blob": "7e456d006d977c8ba363903d69262f8342a8a202",
       "sha256": "6f03776bc559042416c2924004263bcca7e7771201793c00c6528aa499c1ea31",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "6f03776bc559042416c2924004263bcca7e7771201793c00c6528aa499c1ea31",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/startup.test.ts",
@@ -55,7 +67,9 @@
       "blob": "994ece7f068c037e581d31677f95873976a225fd",
       "sha256": "e13d85d6273dcbf1c35456c0c0b305d24841c67bdee8026bb57b09e4d61b79f1",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "e13d85d6273dcbf1c35456c0c0b305d24841c67bdee8026bb57b09e4d61b79f1",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-cli.test.mjs",
@@ -63,7 +77,9 @@
       "blob": "023a821ff628239f2193913856f4eb2a8f650a15",
       "sha256": "dfa6a0ebcbc78d86381c8c759894988d1e69ffb7d70b8bc5eb3cd64edb2c2fa3",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "dfa6a0ebcbc78d86381c8c759894988d1e69ffb7d70b8bc5eb3cd64edb2c2fa3",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/auth-assertion-repair.test.mjs",
@@ -71,7 +87,9 @@
       "blob": "890d20d066823dde261ac3f611b204ccbb04053a",
       "sha256": "853e4375ded260c3956ea2d66ce2d1ad6d1c6a7166b1162417646d571dc2ae00",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "853e4375ded260c3956ea2d66ce2d1ad6d1c6a7166b1162417646d571dc2ae00",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/auth-blocker-handoff.test.mjs",
@@ -79,7 +97,9 @@
       "blob": "7074ffa9a35352b649aa001d229656be74940786",
       "sha256": "da8f04c1c3359ad9a8ef59b697f97b1fed43c10465d4f3cdc97277ff962b6766",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "da8f04c1c3359ad9a8ef59b697f97b1fed43c10465d4f3cdc97277ff962b6766",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/auth-conformance-fixture.test.mjs",
@@ -87,7 +107,9 @@
       "blob": "2d10f010f1e2c6e6b711cfaaf036f73d6f66ac36",
       "sha256": "2c1a25d22d7be529bb02e1a045760e3a9e639b79209acb939c62186b61be3c06",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "2c1a25d22d7be529bb02e1a045760e3a9e639b79209acb939c62186b61be3c06",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/auth-evidence-ownership.test.mjs",
@@ -95,7 +117,9 @@
       "blob": "e8c1b5dbed5f7715ec96b9e436d1ccf942623c31",
       "sha256": "d63ed77878b93acaf0c4147ed7a5538269631d2253b689f221f33eec48644bd9",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "d63ed77878b93acaf0c4147ed7a5538269631d2253b689f221f33eec48644bd9",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/auth-lifecycle.test.mjs",
@@ -103,7 +127,9 @@
       "blob": "7dd598eaf26f1c03cd0a9895f7d7fb9a78cd0dda",
       "sha256": "123db26cf1fc5f1a51f84862a7fd464842973582d21f002b8b058a01759ac7f4",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "123db26cf1fc5f1a51f84862a7fd464842973582d21f002b8b058a01759ac7f4",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/auth-verification-profiles.test.mjs",
@@ -111,7 +137,9 @@
       "blob": "18e6a7bb1346d0a22b669e562418e81916482260",
       "sha256": "c8c74baa7089367b3044d1e761bbf56d3cdb64aad5075a2b851784e408d49c23",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "c8c74baa7089367b3044d1e761bbf56d3cdb64aad5075a2b851784e408d49c23",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/auth-welcome.test.mjs",
@@ -119,7 +147,9 @@
       "blob": "1bc175e713fa858b6e5526a8a2bf8d6338d0569d",
       "sha256": "96d953d9fb58cffef9b2ecf39deeba6ce8ffd9fd7d1784732780124b986d3b62",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "96d953d9fb58cffef9b2ecf39deeba6ce8ffd9fd7d1784732780124b986d3b62",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/auth-wizard.test.mjs",
@@ -127,7 +157,9 @@
       "blob": "8b5d1f84f1e610df7a51b758dce9fb7a913830a2",
       "sha256": "7ec43df9655af9949aeecd6f5154a0e87322308de6b3c9279ff7eb8c045d778d",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "7ec43df9655af9949aeecd6f5154a0e87322308de6b3c9279ff7eb8c045d778d",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/canonical-owner.test.mjs",
@@ -135,7 +167,9 @@
       "blob": "6963643f3b8cc8ad0ac27bcff17c12314b7247cd",
       "sha256": "181d9f961d1d04b29c4e862d278e7e8ab74d8c46fcf40d6d05a093862c19cd14",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "181d9f961d1d04b29c4e862d278e7e8ab74d8c46fcf40d6d05a093862c19cd14",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/enrollment-handoff.test.mjs",
@@ -143,7 +177,9 @@
       "blob": "f12f5dc16378cc4cfc628d387864739e6467c125",
       "sha256": "c68e930bf014de48ad03db7df22c4bb156aca127d59b38bd28a6ce2e153a40c7",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "c68e930bf014de48ad03db7df22c4bb156aca127d59b38bd28a6ce2e153a40c7",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/enrollment-wizard.test.mjs",
@@ -151,7 +187,9 @@
       "blob": "7fbd69f069f94b5f226428ccdd8ef76017286519",
       "sha256": "3cd01d7d51fc55b853883e2a689a49c22ea093a6781ed3d424868763002450d1",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "3cd01d7d51fc55b853883e2a689a49c22ea093a6781ed3d424868763002450d1",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/product-session-provider-proof.test.mjs",
@@ -159,7 +197,9 @@
       "blob": "43f0fa24e574f85595a9a30e5a07d39dc51faa6b",
       "sha256": "7f7fc7ccd9be1ebeb66f26a98ce429316e95c40e10a5cf056cc0d5d35afa34ca",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "7f7fc7ccd9be1ebeb66f26a98ce429316e95c40e10a5cf056cc0d5d35afa34ca",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/provider-identity-tokens.test.mjs",
@@ -167,7 +207,9 @@
       "blob": "a951126fa5cb0a4e3e75ece312f4287b9df31b71",
       "sha256": "4c4b58a7131775a22c09ac3b0e9e4e812d6facd8bf306d8a1b62c18124055f37",
       "role": "test",
-      "classification": "B; four TypeScript suites additionally match committed c963a19 output"
+      "classification": "B; four TypeScript suites additionally match committed c963a19 output",
+      "recovered_sha256": "4c4b58a7131775a22c09ac3b0e9e4e812d6facd8bf306d8a1b62c18124055f37",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-assertion-repair.mjs",
@@ -177,7 +219,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "Bounded repair suite host contract",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "509468f135adc6974f34b47dadb62d8b0199c8931746e8d986b79d5f6d8c5eba",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-authority-conformance.mjs",
@@ -187,7 +231,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "CLI conformance dispatch dependency",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "5b80385290e044fef28c8e4abbe7c16f2efa1f032dda522ba99e47c567a0d637",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-blocker-handoff.mjs",
@@ -197,7 +243,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "Wizard and CLI blocker output",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "a1f52a391bfe5f15006e67c3e1761579fa94af1369d5772342e2b389598c716f",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-capability-catalog.mjs",
@@ -207,7 +255,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "Executable capability identifiers and checks",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "a3a120567739d379c00994049959b435b613b874e983bce3b6e57a0ef85eda2d",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-cli.mjs",
@@ -217,7 +267,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "CLI subprocess entrypoint tested by canonical suite",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "42b1f52a0d3cc48b9e5085bbdc6139451f09f7ca078fed8dd460c1d9b1661751",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-conformance-binding.mjs",
@@ -227,7 +279,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "Evidence digest/config/expiry validation",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "261d44c48364f2e34a8d55cebaf6da48b7df1a22708886cd6ec0f910dcf73c80",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-conformance-fixture-worker.mjs",
@@ -237,7 +291,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "Isolated child fixture executable",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "747a36ad97d0415429b7edf39ab99d1d1d8d4967a2a2de7ef8f6433715ea87cc",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-conformance-fixture.mjs",
@@ -247,7 +303,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "Fixture isolation, artifact copying, cleanup",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "f72b653518bbda9509c7770ba05406eefd11b6b692e7a2bd87a33ec21274e4c6",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-evidence-ownership.mjs",
@@ -257,7 +315,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "Ownership-aware evidence aggregation",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "e78d25044c75630611708683152ec4608d1989adf24149b15c931be4ca755898",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-lifecycle.mjs",
@@ -267,7 +327,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "Lifecycle trace validation",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "db000fd153e042e3971c0cc69fdf81d237c587511fe1960a075c12e749324785",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-runtime-acceptance.mjs",
@@ -277,7 +339,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "CLI runtime acceptance dispatch dependency",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "baf447d9e0ed4c6ff91ad587d893be80db314eacd2a6a4abe536c48204e2a817",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-verification-profiles.mjs",
@@ -287,7 +351,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "Profile requirement evaluation",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "f399ec036b110e049517e5b53e7c9d1d1e374699fb40b898a1c1f89e14c35918",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-wizard.mjs",
@@ -297,7 +363,9 @@
       "classification": "B: coherent exact snapshot; historical CLI differs, snapshot selected by the recovered wizard callers and tests",
       "role": "operator-tool dependency (not imported by serving AUTH runtime)",
       "necessary_for": "OBSERVE/ASSESS/DECIDE/VERIFY and scoped ACT",
-      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs"
+      "runtime_impact": "Adds explicitly invoked operator behavior; does not alter HTTP runtime or auto-register product repairs",
+      "recovered_sha256": "501a1abbc6ab8eeffd0c853cb7667a4ece4e39f399e02f8de043e70aaa4d903e",
+      "byte_identical_to_source": true
     },
     {
       "path": "templates/auth-adapter/ADAPTER.md",
@@ -307,7 +375,9 @@
       "classification": "B",
       "role": "operator setup template",
       "necessary_for": "CLI setup copy target",
-      "runtime_impact": "None until explicitly authorized setup"
+      "runtime_impact": "None until explicitly authorized setup",
+      "recovered_sha256": "ffdcf93ece863aeb5306096157265714da081339cd81619b026ed1030ca5d018",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/auth-enrollment-handoff.mjs",
@@ -317,7 +387,9 @@
       "classification": "A; byte-identical B snapshot corroboration",
       "role": "existing enrollment runtime prerequisite and contract test dependency",
       "necessary_for": "Existing enrollmentHost dynamic import and enrollment-handoff suite",
-      "runtime_impact": "Restores missing approved module at pre-existing configured enrollment route; no change to Milestone resource runtime"
+      "runtime_impact": "Restores missing approved module at pre-existing configured enrollment route; no change to Milestone resource runtime",
+      "recovered_sha256": "080c086230719abed835158ac60eda6c507f403f18d47de57ec4b5a0ea4f709d",
+      "byte_identical_to_source": true
     },
     {
       "path": "config/example-app.json",
@@ -327,7 +399,9 @@
       "classification": "B",
       "role": "pre-existing DEFAULT_CONFIG_PATH runtime prerequisite used by startup suite",
       "necessary_for": "src/config.ts DEFAULT_CONFIG_PATH explicitly names this file; source snapshot contains exact config",
-      "runtime_impact": "Restores omitted default example profile when no explicit deployment config selected; production configs and Milestone policy unchanged"
+      "runtime_impact": "Restores omitted default example profile when no explicit deployment config selected; production configs and Milestone policy unchanged",
+      "recovered_sha256": "8ae13647591a0481388587b32aa487121581f97334d17d753a617dfa450248df",
+      "byte_identical_to_source": true
     },
     {
       "path": "scripts/test-resource-authorization.mjs",
@@ -337,7 +411,9 @@
       "classification": "B",
       "role": "test-only documented supplemental resource runner closure",
       "necessary_for": "docs/RESOURCE_AUTHORIZATION_V1.md canonical test:resource-authorization invocation",
-      "runtime_impact": "None; tests use existing modules and synthetic login fixture"
+      "runtime_impact": "None; tests use existing modules and synthetic login fixture",
+      "recovered_sha256": "9d024558ce25586ec5d4f1d33a7ca057bad7317edfbecfdcc3fc68c64b49bd4b",
+      "byte_identical_to_source": false
     },
     {
       "path": "src/test/resource-authorization-wizard.test.mjs",
@@ -347,7 +423,9 @@
       "classification": "B",
       "role": "test-only documented supplemental resource runner closure",
       "necessary_for": "docs/RESOURCE_AUTHORIZATION_V1.md canonical test:resource-authorization invocation",
-      "runtime_impact": "None; tests use existing modules and synthetic login fixture"
+      "runtime_impact": "None; tests use existing modules and synthetic login fixture",
+      "recovered_sha256": "d72c013fda5afd8bbe2cc067db38564e1476d7d51cb68dc30af99f161bd48ee0",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/vvaultAccessAssertion.test.ts",
@@ -357,7 +435,9 @@
       "classification": "B",
       "role": "test-only documented supplemental resource runner closure",
       "necessary_for": "docs/RESOURCE_AUTHORIZATION_V1.md canonical test:resource-authorization invocation",
-      "runtime_impact": "None; tests use existing modules and synthetic login fixture"
+      "runtime_impact": "None; tests use existing modules and synthetic login fixture",
+      "recovered_sha256": "196fd090b14e50e793033ab4f5e95b531437cf2463b5c6587de200fb32f00aa6",
+      "byte_identical_to_source": true
     },
     {
       "path": "src/test/vvaultAccessAssertionRoute.test.ts",
@@ -367,7 +447,9 @@
       "classification": "B",
       "role": "test-only documented supplemental resource runner closure",
       "necessary_for": "docs/RESOURCE_AUTHORIZATION_V1.md canonical test:resource-authorization invocation",
-      "runtime_impact": "None; tests use existing modules and synthetic login fixture"
+      "runtime_impact": "None; tests use existing modules and synthetic login fixture",
+      "recovered_sha256": "81bf360ac729968d95522d25493c84920bd554bae9bea3aaad3b50f61a68f54a",
+      "byte_identical_to_source": true
     }
   ],
   "corrections": [
@@ -383,5 +465,111 @@
       "change": "Add existing resourceRuntime and vvaultOwnerAdmission suites to older recovered resource runner; removes no tests",
       "runtime_change": false
     }
-  ]
+  ],
+  "dependency_graph": {
+    "scripts/auth-cli.test.mjs": [
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-cli.mjs"
+    ],
+    "src/test/auth-assertion-repair.test.mjs": [
+      "scripts/auth-assertion-repair.mjs"
+    ],
+    "src/test/auth-blocker-handoff.test.mjs": [
+      "scripts/auth-blocker-handoff.mjs"
+    ],
+    "src/test/auth-conformance-fixture.test.mjs": [
+      "scripts/auth-conformance-fixture.mjs"
+    ],
+    "src/test/auth-evidence-ownership.test.mjs": [
+      "scripts/auth-blocker-handoff.mjs",
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-conformance-binding.mjs",
+      "scripts/auth-evidence-ownership.mjs",
+      "scripts/auth-wizard.mjs"
+    ],
+    "src/test/auth-lifecycle.test.mjs": [
+      "scripts/auth-lifecycle.mjs"
+    ],
+    "src/test/auth-verification-profiles.test.mjs": [
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-evidence-ownership.mjs",
+      "scripts/auth-verification-profiles.mjs",
+      "scripts/auth-wizard.mjs"
+    ],
+    "src/test/auth-welcome.test.mjs": [
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-wizard.mjs"
+    ],
+    "src/test/auth-wizard.test.mjs": [
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-wizard.mjs"
+    ],
+    "src/test/enrollment-handoff.test.mjs": [
+      "scripts/auth-enrollment-handoff.mjs"
+    ],
+    "src/test/enrollment-wizard.test.mjs": [
+      "scripts/auth-blocker-handoff.mjs",
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-wizard.mjs"
+    ],
+    "scripts/auth-assertion-repair.mjs": [
+      "scripts/auth-blocker-handoff.mjs",
+      "scripts/auth-wizard.mjs"
+    ],
+    "scripts/auth-authority-conformance.mjs": [
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-conformance-binding.mjs",
+      "scripts/auth-conformance-fixture.mjs",
+      "scripts/auth-evidence-ownership.mjs"
+    ],
+    "scripts/auth-blocker-handoff.mjs": [
+      "scripts/auth-capability-catalog.mjs"
+    ],
+    "scripts/auth-cli.mjs": [
+      "scripts/auth-authority-conformance.mjs",
+      "scripts/auth-blocker-handoff.mjs",
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-runtime-acceptance.mjs",
+      "scripts/auth-wizard.mjs"
+    ],
+    "scripts/auth-conformance-fixture.mjs": [
+      "scripts/auth-conformance-binding.mjs",
+      "scripts/auth-conformance-fixture-worker.mjs",
+      "scripts/auth-conformance-fixture.mjs"
+    ],
+    "scripts/auth-evidence-ownership.mjs": [
+      "scripts/auth-conformance-binding.mjs"
+    ],
+    "scripts/auth-wizard.mjs": [
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-evidence-ownership.mjs",
+      "scripts/auth-lifecycle.mjs",
+      "scripts/auth-verification-profiles.mjs"
+    ],
+    "src/test/resource-authorization-wizard.test.mjs": [
+      "scripts/auth-capability-catalog.mjs",
+      "scripts/auth-evidence-ownership.mjs",
+      "scripts/auth-wizard.mjs"
+    ]
+  },
+  "additional_file_dependencies": {
+    "scripts/auth-cli.mjs": [
+      "templates/auth-adapter/ADAPTER.md",
+      "config/<selected-app>.json"
+    ],
+    "scripts/auth-conformance-fixture.mjs": [
+      "scripts/auth-conformance-fixture-worker.mjs",
+      "compiled app import closure"
+    ],
+    "src/test/startup.test.ts": [
+      "dist/index.js",
+      "config/example-app.json"
+    ],
+    "scripts/test-resource-authorization.mjs": [
+      "TypeScript compiler",
+      "existing frozen resource suites",
+      "legacy assertion suites",
+      "native binding and resource wizard suites"
+    ]
+  }
 }
