@@ -31,6 +31,8 @@ function usage(exitCode = 0) {
     'Usage:',
     '  auth acceptance --adapter <json> (read-only configured-runtime and live-acceptance report)',
     '  auth conformance --adapter <json> --app <id> --client-id <registered client> --out <new json> [--authority http://localhost:1111]',
+    '  auth product <verify|maintain|establish|advance|amend> [approval.json] --repo <path>',
+    '  auth setup --config <product-config.json> --inputs <input-paths.json> --adapter <observer.mjs> --repo <path> --app <id> --authorize',
     '  auth setup --repo <path> --app <chatty|cleanhouse|code|vvault> [--dry-run | --authorize]',
     '  auth validate --repo <path> --app <chatty|cleanhouse|code|vvault>',
     '  auth wizard --adapter <json> [--baseline <json>] [--profile RELYING_PARTY_CLIENT|ASSERTION_INTEGRATION|AUTHORITY_RUNTIME|FULL_AUTHORITY_CONFORMANCE] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--authorize]',
@@ -61,7 +63,7 @@ function parseArgs(argv) {
       args.authorize = true;
       continue;
     }
-    if (['--repo', '--app', '--adapter', '--baseline', '--operator', '--outcome', '--capability', '--authority-evidence', '--authority-sha256', '--authority', '--client-id', '--out', '--profile'].includes(token)) {
+    if (['--repo', '--app', '--adapter', '--baseline', '--operator', '--outcome', '--capability', '--authority-evidence', '--authority-sha256', '--authority', '--client-id', '--out', '--profile', '--config', '--inputs', '--gate'].includes(token)) {
       const value = rest[index + 1];
       if (!value || value.startsWith('--')) usage(1);
       args[token.slice(2)] = value;
@@ -88,7 +90,7 @@ function parseArgs(argv) {
   }
   if (!args.repo || !args.app) usage(1);
   args.app = String(args.app).trim().toLowerCase();
-  if (!TARGET_APPS.has(args.app)) {
+  if (!TARGET_APPS.has(args.app) && !args.config) {
     throw new Error(`Unsupported app "${args.app}". Expected one of: ${[...TARGET_APPS].join(', ')}`);
   }
   return args;
@@ -424,17 +426,25 @@ async function setup(args) {
   if (!await pathExists(repoPath)) {
     throw new Error(`Target repo does not exist: ${repoPath}`);
   }
-  const { config } = await loadAppConfig(args.app);
+  const { config } = args.config ? { config: await readJson(path.resolve(args.config)) } : await loadAppConfig(args.app);
+  if (config.app?.id !== args.app) throw new Error('Product configuration identity mismatch');
   const kitDir = path.join(repoPath, '.auth-kit');
   const reportDir = path.join(kitDir, 'reports');
   const changedFiles = [
     '.auth-kit/auth.config.json',
     '.auth-kit/ADAPTER.md',
     '.auth-kit/reports/latest.md',
+    '.auth-kit/contract.json', '.auth-kit/observe.mjs', '.auth-kit/verify.mjs', '.auth-kit/ci.mjs',
+    '.auth-kit/provenance.json', '.auth-kit/runtime/', '.auth-kit/history/', '.auth-kit/baseline/',
+    '.github/workflows/auth-product-contract.yml',
   ];
   const report = setupReport({ app: args.app, repoPath, config, changedFiles });
 
   if (!args.dryRun) {
+    const { installProductBundle } = await import('./auth-product-contract.mjs');
+    await installProductBundle(repoPath, { authorized: args.authorize, productId: args.app, adapterSource: args.adapter ? path.resolve(args.adapter) : undefined,
+      gateSource: args.gate ? path.resolve(args.gate) : undefined,
+      inputs: args.inputs ? await readJson(path.resolve(args.inputs)) : undefined, profile: args.profile });
     await mkdir(reportDir, { recursive: true });
     await writeFile(path.join(kitDir, 'auth.config.json'), setupConfigPayload({ app: args.app, config }), 'utf8');
     await copyFile(path.join(repoRoot, 'templates', 'auth-adapter', 'ADAPTER.md'), path.join(kitDir, 'ADAPTER.md'));
@@ -485,7 +495,8 @@ async function wizard(args) {
       changedFiles: [],
       capabilityId: args.capability || null,
     };
-    report.blockerHandoffs = createBlockerHandoffs(report, context);
+    report.lifecycle_preservation = 'NOT_ASSESSED_USE_PRODUCT_VERIFY';
+  report.blockerHandoffs = createBlockerHandoffs(report, context);
     console.log(JSON.stringify(report, null, 2));
     process.exitCode = 2;
     return;
@@ -501,6 +512,7 @@ async function wizard(args) {
     trustedAuthorityEvidence = JSON.parse(bytes);
   }
   const report = evaluateAdapter(adapter, { baseline, operator: args.operator, trustedAuthorityEvidence, verificationProfile: args.profile });
+  report.lifecycle_preservation = 'NOT_ASSESSED_USE_PRODUCT_VERIFY';
   report.blockerHandoffs = createBlockerHandoffs(report, context);
   console.log(JSON.stringify(report, null, 2));
   if (['VERIFY', 'DECIDE'].includes(args.operator) && report.profile_verification !== 'PASS') {
@@ -510,7 +522,8 @@ async function wizard(args) {
 
 async function validate(args) {
   const repoPath = path.resolve(args.repo);
-  const { config } = await loadAppConfig(args.app);
+  const { config } = args.config ? { config: await readJson(path.resolve(args.config)) } : await loadAppConfig(args.app);
+  if (config.app?.id !== args.app) throw new Error('Product configuration identity mismatch');
   const checks = [];
   const blockers = [];
 
@@ -525,6 +538,15 @@ async function validate(args) {
     if (!exists) blockers.push(`Missing ${relativePath}; run auth setup first.`);
   }
 
+  try {
+    const { inspectProductBundle } = await import('./auth-product-contract.mjs');
+    const state = await inspectProductBundle(repoPath);
+    checks.push(['durable contract integrity', true]);
+    if (state.contract.state !== 'ESTABLISHED') blockers.push('UNESTABLISHED: reviewed baseline required; run product establishment.');
+  } catch {
+    checks.push(['durable contract integrity', false]);
+    blockers.push('Durable AUTH bundle missing or invalid; use auth product verify for the precise blocker.');
+  }
   const providerCount = enabledProviders(config).length;
   checks.push(['at least one enabled provider in source config', providerCount > 0]);
   if (providerCount === 0) blockers.push(`config/${args.app}.json has no enabled provider.`);
@@ -556,7 +578,16 @@ async function validate(args) {
 }
 
 try {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv[0] === 'product') {
+    const index = argv.indexOf('--repo');
+    if (index < 2 || !argv[index + 1]) throw new Error('auth product <verify|maintain|establish|advance|amend> [approval.json] --repo <product>');
+    const root = path.resolve(argv[index + 1]);
+    argv.splice(index, 2);
+    const { runProductCli } = await import('./auth-product-contract.mjs');
+    await runProductCli(argv.slice(1), root);
+  } else {
+  const args = parseArgs(argv);
   if (args.command === 'acceptance') {
     const { evaluateRuntimeAcceptance } = await import('./auth-runtime-acceptance.mjs');
     const { readFile } = await import('node:fs/promises');
@@ -572,6 +603,7 @@ try {
     await wizard(args);
   } else {
     await validate(args);
+  }
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

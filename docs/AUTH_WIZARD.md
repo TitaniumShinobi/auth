@@ -133,3 +133,7 @@ MDBO lineage is not established for this catalog. Do not infer universal L1 mapp
 Run `bin/npm20 run test:wizard`. The normal `npm test` runs wizard tests first, then the existing build/runtime suite. No provider credentials, network, product edits, or live database are needed by the wizard tests. Product integrations still need their own observed runtime evidence and supported repair adapters.
 
 Relying-party operators: see [Safe relying-party evidence](AUTH_RELYING_PARTY_EVIDENCE.md) for explicit verification ownership, trusted authority conformance, and secret-free collection.
+
+## Durable product integration
+
+Use the [durable product contract](AUTH_PRODUCT_DURABILITY.md) for installed lifecycle protection: `auth setup` now installs the `.auth-kit` verifier, observation entrypoint, provenance and CI gate. Explicit establishment creates the reviewed baseline; `node .auth-kit/verify.mjs verify` automatically validates it and its check-level history. `maintain` reverifies; `advance` and `amend` require separate reviewed authorization. Raw `auth wizard --adapter` remains a diagnostic primitive, not a durable release gate. External required-status protection and live product evidence remain separate obligations.

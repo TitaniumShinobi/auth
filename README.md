@@ -405,3 +405,7 @@ Generate non-secret local authority conformance through `bin/auth conformance`:
 Canonical-owner repair operators: [bounded assertion repair and protected datasource contract](docs/AUTH_ASSERTION_REPAIR.md).
 
 Desktop repair packaging: [1.1.0 integration instructions](docs/DESKTOP_HANDOFF_1_1_0.md).
+
+## Durable product integration
+
+Use the [durable product contract](docs/AUTH_PRODUCT_DURABILITY.md) for installed lifecycle protection: `auth setup` now installs the `.auth-kit` verifier, observation entrypoint, provenance and CI gate. Explicit establishment creates the reviewed baseline; `node .auth-kit/verify.mjs verify` automatically validates it and its check-level history. `maintain` reverifies; `advance` and `amend` require separate reviewed authorization. Raw `auth wizard --adapter` remains a diagnostic primitive, not a durable release gate. External required-status protection and live product evidence remain separate obligations.
