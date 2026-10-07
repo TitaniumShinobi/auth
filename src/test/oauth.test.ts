@@ -259,7 +259,8 @@ test('rejects OAuth callback with invalid state', async () => {
       headers: { Origin: 'http://localhost:2048' },
       redirect: 'manual',
     });
-    assert.equal(callback.status, 302);
-    assert.equal(callback.headers.get('location'), 'http://localhost:2048/?error=invalid_state');
+    assert.equal(callback.status, 400);
+    assert.equal(callback.headers.get('location'), null);
+    assert.equal((await callback.json() as {error:string}).error, 'invalid_state');
   });
 });

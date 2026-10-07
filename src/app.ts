@@ -98,6 +98,7 @@ import { resolveCanonicalOwner, type VerifiedProviderIdentity } from './auth/can
 import { getAuthPrismaClient, getCanonicalOwnerPrismaClient } from './persistence/prismaClient.js';
 import { PostgresStorageAdapter } from './persistence/postgresStorage.js';
 import { SqliteStorageAdapter } from './persistence/sqliteStorage.js';
+import { SqlitePersistenceError } from './persistence/sqliteCli.js';
 import { logAuthApiMeIdentityDiagnostics } from './identityDiagnostics.js';
 import {
   isEmailInLifeRegistry as defaultIsEmailInLifeRegistry,
@@ -1724,6 +1725,16 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     res.json({ ok: true, ready: true, service: 'auth' });
   });
   app.get('/favicon.ico', (_req, res) => res.status(204).send());
+  // Terminal compatibility endpoint; a browser return is never session proof.
+  app.get('/return', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    return res.status(req.query.error ? 400 : 409).json({
+      ok: false, state: 'RECOVERABLE_ERROR',
+      error: req.query.error ? 'AUTHENTICATION_FAILED' : 'DESKTOP_HANDOFF_REQUIRED',
+      message: 'Return to the application and start sign-in again.',
+    });
+  });
   logStartupStage('middleware_initialized');
 
   const oauthError = (res: any, status: number, error: string, description?: string) =>
@@ -1754,29 +1765,41 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     if (!client || !validateRedirectUri(client, record.redirectUri)) {
       return oauthError(res, 400, 'invalid_request', 'Client registration changed');
     }
-    const authSession = (record.forceReauthentication || record.identityAuthority==='vvault')
-      ? {status:401,error:'Fresh authentication required'}
-      : await readAuthSession(req, cookieName, tokenConfig, refreshTokenStore, ephemeralStore);
-    if ('error' in authSession) {
-      await ephemeralStore.setJson(authorizationRequestKey(requestId), record, AUTHORIZATION_REQUEST_TTL_SECONDS);
-      if (browserBinding && record.federationBrowserBindingHash) {
-        res.append(
-          'Set-Cookie',
-          createFederationBrowserBindingCookie(req, requestId, browserBinding),
-        );
+    try {
+      const authSession = (record.forceReauthentication || record.identityAuthority==='vvault')
+        ? {status:401,error:'Fresh authentication required'}
+        : await readAuthSession(req, cookieName, tokenConfig, refreshTokenStore, ephemeralStore);
+      if ('error' in authSession) {
+        await ephemeralStore.setJson(authorizationRequestKey(requestId), record, AUTHORIZATION_REQUEST_TTL_SECONDS);
+        if (browserBinding && record.federationBrowserBindingHash) {
+          res.append(
+            'Set-Cookie',
+            createFederationBrowserBindingCookie(req, requestId, browserBinding),
+          );
+        }
+        const loginUrl = record.identityAuthority==='vvault'
+          ? new URL('/api/auth/chatty/authorize',process.env.AUTH_ENROLLMENT_AUTHORITY_ORIGIN)
+          : record.nativeProvider
+            ? new URL(`/api/auth/${encodeURIComponent(record.nativeProvider)}`, resolveHostedOrigin(req))
+            : new URL(client.authorizationUiUrl);
+        loginUrl.searchParams.set('authorization_request', requestId);
+        loginUrl.searchParams.set('authorization_return', `${resolveAuthorizationOrigin()}/oauth/authorize/complete`);
+        return res.redirect(loginUrl.toString());
       }
-      const loginUrl = record.identityAuthority==='vvault'
-        ? new URL('/api/auth/chatty/authorize',process.env.AUTH_ENROLLMENT_AUTHORITY_ORIGIN)
-        : record.nativeProvider
-          ? new URL(`/api/auth/${encodeURIComponent(record.nativeProvider)}`, resolveHostedOrigin(req))
-          : new URL(client.authorizationUiUrl);
-      loginUrl.searchParams.set('authorization_request', requestId);
-      loginUrl.searchParams.set('authorization_return', `${resolveAuthorizationOrigin()}/oauth/authorize/complete`);
-      return res.redirect(loginUrl.toString());
+      const user = await storage.findUserByEmail(authSession.session.email);
+      if (!user) return oauthError(res, 401, 'access_denied', 'Authenticated user no longer exists');
+      return redirectWithAuthorizationCode(res, record, user.id, authSession.session.providerIdentity);
+    } catch (error) {
+      const reason = error instanceof SqlitePersistenceError ? error.reason : 'AUTHORIZATION_COMPLETION_FAILED';
+      console.error('[auth] authorization_completion_failed', { requestId: req._rid, reason });
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      // The request was consumed above and its registered redirect validated.
+      // Never send raw persistence errors or an authorization code on failure.
+      return res.redirect(appendAuthorizationResult(record.redirectUri, {
+        error: 'temporarily_unavailable', state: record.state,
+      }));
     }
-    const user = await storage.findUserByEmail(authSession.session.email);
-    if (!user) return oauthError(res, 401, 'access_denied', 'Authenticated user no longer exists');
-    return redirectWithAuthorizationCode(res, record, user.id, authSession.session.providerIdentity);
   }
 
   app.get('/oauth/authorize', async (req, res) => {
@@ -3066,29 +3089,46 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       throw error;
     }
     const providers = resolveProviderClients(config, options.providers);
-    const fallbackOrigin = stateRecord?.origin || resolveRequestOrigin(req, config);
+    async function failCallback(reason: string, status = 400) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      // Only consumed provider state may select an initiating native transaction.
+      if (stateRecord?.authorizationRequestId) {
+        const pending = await ephemeralStore.takeJson<AuthorizationRequestRecord>(authorizationRequestKey(stateRecord.authorizationRequestId));
+        const registered = pending && findPublicClient(config, pending.clientId);
+        if (pending && registered && pending.appId === config.app.id &&
+          Date.now() - pending.createdAt < AUTHORIZATION_REQUEST_TTL_SECONDS * 1000 &&
+          validateRedirectUri(registered, pending.redirectUri)) {
+          return res.redirect(appendAuthorizationResult(pending.redirectUri, {
+            error: reason, state: pending.state,
+          }));
+        }
+      }
+      return res.status(status).json({ ok: false, state: 'RECOVERABLE_ERROR', error: reason,
+        message: 'Sign-in could not complete. Retry from the application.' });
+    }
     if (oauthError) {
-      return res.redirect(`${fallbackOrigin}${config.redirects.postLoginPath}?error=${encodeURIComponent(oauthError)}`);
+      return failCallback(stateRecord ? 'access_denied' : 'invalid_state');
     }
     if (!stateRecord) {
-      return res.redirect(`${fallbackOrigin}${config.redirects.postLoginPath}?error=invalid_state`);
+      return failCallback('invalid_state');
     }
     if (stateRecord.mode === 'repo_connect') {
       if (providerId !== 'github') {
-        return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?error=unsupported_provider`);
+        return failCallback('unsupported_provider');
       }
       if (!code) {
-        return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?error=missing_code`);
+        return failCallback('missing_code');
       }
       const authContext = await readAuthenticatedUser(req, storage, cookieName, tokenConfig, refreshTokenStore, ephemeralStore);
       if ('error' in authContext) {
-        return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?error=missing_session`);
+        return failCallback('missing_session');
       }
 
       const { clientId, clientSecret, callbackUrl: configuredCallbackUrl } = resolveGitHubOAuthCredentials(config);
       const callbackUrl = configuredCallbackUrl || stateRecord.callbackUrl;
       if (!clientId || !clientSecret || !callbackUrl) {
-        return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?error=github_not_configured`);
+        return failCallback('github_not_configured');
       }
 
       try {
@@ -3119,17 +3159,16 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
         githubRepoSessions.delete(authContext.user.id);
         return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'github_connect_failed';
-        return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?error=${encodeURIComponent(message)}`);
+        return failCallback('temporarily_unavailable', 503);
       }
     }
 
     const client = providers[providerId];
     if (!client) {
-      return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?error=unsupported_provider`);
+      return failCallback('unsupported_provider');
     }
     if (!code) {
-      return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?error=missing_code`);
+      return failCallback('missing_code');
     }
 
     try {
@@ -3216,8 +3255,10 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       res.setHeader('Set-Cookie', createHostedTokenCookies(req, cookieName, refreshCookieName, tokens, tokenConfig));
       return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'oauth_failed';
-      return res.redirect(`${stateRecord.origin}${config.redirects.postLoginPath}?error=${encodeURIComponent(message)}`);
+      // Safe diagnostics only: never log exception.message, SQL, paths or provider credentials.
+      const reason = error instanceof SqlitePersistenceError ? error.reason : 'PROVIDER_CALLBACK_FAILED';
+      console.error('[auth] provider_callback_failed', { requestId: req._rid, reason });
+      return failCallback('temporarily_unavailable', 503);
     }
   });
 

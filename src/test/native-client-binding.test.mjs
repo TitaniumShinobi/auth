@@ -30,23 +30,37 @@ test('only registered unambiguous clients derive the configured application; no 
 
 test('access and refresh preserve native client independently of LIFE subject and legacy RP', async () => {
   const access = await createAccessToken(user, 'session', config);
-  assert.deepEqual((await verifyAccessToken(access.token, config)).session.nativeClient, binding);
+  const verified = await verifyAccessToken(access.token, config);
+  assert.deepEqual(verified.session.nativeClient, binding);
+  assert.equal(verified.session.sub, 'life-subject');
+  assert.equal(verified.session.relyingPartyId, undefined);
   const refresh = await createRefreshToken(user.id, 'session', config, binding.clientId, undefined, binding);
   const current = await verifyRefreshToken(refresh.token, config);
   assert.deepEqual(current.nativeClient, binding);
+  assert.equal(current.clientId, binding.clientId);
   const rotated = await createRefreshToken(current.userId, current.sessionId, config, current.clientId, undefined, current.nativeClient);
   assert.deepEqual((await verifyRefreshToken(rotated.token, config)).nativeClient, binding);
 });
 
-test('legacy tokens never acquire a resource-authorizing binding', async () => {
+test('legacy access and client-only refresh do not acquire a resource-authorizing binding', async () => {
   assert.equal((await verifyAccessToken((await createAccessToken({ ...user, nativeClient: undefined }, 'session', config, 'chatty')).token, config)).session.nativeClient, undefined);
   assert.equal((await verifyRefreshToken((await createRefreshToken(user.id, 'session', config, binding.clientId)).token, config)).nativeClient, undefined);
 });
 
-test('mismatched signed native-client refresh claims fail closed', async () => {
+test('malformed or mismatched bindings fail closed including validly signed refresh claims', async () => {
   await assert.rejects(createRefreshToken(user.id, 'session', config, 'other-client', undefined, binding), /INVALID_NATIVE_CLIENT_BINDING/);
+  await assert.rejects(createAccessToken({ ...user, nativeClient: { ...binding, applicationId: ' grid' } }, 'session', config), /INVALID_NATIVE_CLIENT_BINDING/);
   const token = await new SignJWT({ token_use: 'refresh', sid: 'session', client_id: 'other-client', native_client: binding })
     .setProtectedHeader({ alg: 'HS256' }).setIssuer(config.issuer).setAudience(config.audience)
     .setSubject(user.id).setJti('fixture').setExpirationTime('1m').sign(new TextEncoder().encode(config.refreshSecret));
   assert.equal(await verifyRefreshToken(token, config), null);
+});
+
+test('tampering with native client claims fails signature validation', async () => {
+  const issued = await createAccessToken(user, 'session', config);
+  const parts = issued.token.split('.');
+  const payload = JSON.parse(Buffer.from(parts[1], 'base64url'));
+  payload.native_client.applicationId = 'other';
+  parts[1] = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  assert.equal(await verifyAccessToken(parts.join('.'), config), null);
 });
