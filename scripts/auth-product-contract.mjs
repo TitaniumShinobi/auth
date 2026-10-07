@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { runGit } from './auth-git.mjs';
+import { runGit, inventoryPaths, filesystemPath } from './auth-git.mjs';
 import { evaluateAdapter } from './auth-wizard.mjs';
 import { CAPABILITIES, CATALOG_VERSION, COMPATIBLE_BASELINE_VERSIONS } from './auth-capability-catalog.mjs';
 import { createBlockerHandoffs } from './auth-blocker-handoff.mjs';
@@ -25,9 +25,9 @@ const workflow = `name: AUTH product contract\non: [pull_request, push, workflow
 
 async function safeFile(root, relative) {
   if (!text(relative) || path.isAbsolute(relative) || relative.includes('\\') || relative.split('/').some(p => p === '..' || p === '')) fail('UNSAFE_BUNDLE_PATH');
-  const target = path.join(root, relative);
+  const target = filesystemPath(path.join(root, relative));
   // Reject symlinks on every component, including directories.
-  let current = root;
+  let current = filesystemPath(root);
   for (const part of relative.split('/')) { current = path.join(current, part); if ((await lstat(current)).isSymbolicLink()) fail('SYMLINK_NOT_ALLOWED'); }
   if (!(await lstat(target)).isFile()) fail('EXPECTED_FILE');
   return target;
@@ -149,9 +149,11 @@ async function currentBinding(root,c) {
   const git=args=>runGit(args,{cwd:root});
   if(await realpath(git(['rev-parse','--show-toplevel']).trim())!==await realpath(root))fail('PRODUCT_REPOSITORY_ROOT_REQUIRED');
   const commit=git(['rev-parse','HEAD']).trim();
-  const files=git(['ls-files','-z','--cached','--others','--exclude-standard']).split('\0').filter(Boolean).filter(p=>!p.startsWith(`${kit}/`));
-  const source={};
-  for(const f of [...new Set(files)].sort()) {try{source[f]=hash(await readFile(await safeFile(root,f)));}catch(e){if(e.code==='ENOENT')source[f]='DELETED';else throw e;}}
+  const source=Object.create(null);
+  for await(const f of inventoryPaths({cwd:root})) {
+    if(f.startsWith(`${kit}/`)||Object.hasOwn(source,f))continue;
+    try{source[f]=hash(await readFile(await safeFile(root,f)));}catch(e){if(e.code==='ENOENT')source[f]='DELETED';else throw e;}
+  }
   if(!c.inputs.artifact.length||!c.inputs.configuration.length)fail('ARTIFACT_CONFIGURATION_INPUTS_REQUIRED');
   const artifact=await hashes(root,c.inputs.artifact),configuration=await hashes(root,c.inputs.configuration);
   return {productId:c.productId,revision:hash({commit,source}),commit,artifactDigest:hash(artifact),configurationDigest:hash(configuration)};
