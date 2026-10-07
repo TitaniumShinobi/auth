@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { runGit } from './auth-git.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp,writeFile,readFile,rm,rename,readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,7 +20,7 @@ const fixtureFacts=()=>Object.fromEntries(CAPABILITIES.map(c=>[c.id,['signup','p
  : {applicability:'FALSE',reason:'fixture scope',implementation:'NOT_ESTABLISHED'}]));
 async function fixture(fn,{established=true,productId='arbitrary-desktop'}={}) {
  const root=await mkdtemp(path.join(tmpdir(),'auth-durable-'));
- const git=args=>{const r=spawnSync('git',args,{cwd:root,encoding:'utf8'});assert.equal(r.status,0,r.stderr);};
+ const git=args=>runGit(args,{cwd:root});
  try {
   git(['init','-q']);git(['-c','user.name=Fixture','-c','user.email=fixture@example.test','commit','--allow-empty','-qm','fixture']);
   await writeFile(path.join(root,'runtime.mjs'),"console.log('PRODUCT_OK');\n");

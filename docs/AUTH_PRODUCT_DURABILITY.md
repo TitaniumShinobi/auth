@@ -110,3 +110,7 @@ The CLI supports trusted external verification and checkpoint comparison. AUTH d
 ## Distribution boundary
 
 Source/development retains the full kit, provenance, history and build gate. Packages ship only their required authentication runtime/adapters/configuration and secure user-session storage. They need not ship this wizard, development secrets, reports or baselines. A stopped wizard is not permission to disable an independently required identity authority or session security check. Real product independence must be demonstrated by its collector and live acceptance, separately from AUTH's synthetic tests.
+
+## Git executable discovery
+
+Setup/verification invokes Git without a shell. It selects an executable from absolute PATH entries, then standard Windows Git installation locations derived from ProgramFiles/ProgramW6432/LOCALAPPDATA. Case-insensitive Windows environment names are supported. Override with an absolute `AUTH_GIT_EXECUTABLE` path; an invalid override fails rather than falling back. Each selection must pass `--version`. Discovery errors retain a diagnostic without echoing repository or credential output. On PowerShell, for example: `$env:AUTH_GIT_EXECUTABLE = (Get-Command git.exe -CommandType Application).Source`. Installations created before this fix remain pinned to their earlier runtime; do not hand-edit their provenance.
