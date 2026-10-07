@@ -57,9 +57,9 @@ export async function* parseGitPaths(chunks) {
   }
   if(length)throw error('GIT_INVENTORY_TRUNCATED','Git inventory ended without its terminating NUL; no inventory may be accepted.');
 }
-export async function* inventoryPaths({cwd,platform=process.platform,launch=spawn,...discovery}={}) {
+export async function* inventoryPaths({cwd,platform=process.platform,launch=spawn,args,...discovery}={}) {
   const executable=discoverGit({platform,...discovery});
-  const child=launch(executable,inventoryArguments(platform),{cwd,windowsHide:true,shell:false,stdio:['ignore','pipe','pipe'],env:{...process.env,...discovery.env,GIT_OPTIONAL_LOCKS:'0'}});
+  const child=launch(executable,(args?[...(platform==='win32'?['-c','core.longpaths=true']:[]),...args]:inventoryArguments(platform)),{cwd,windowsHide:true,shell:false,stdio:['ignore','pipe','pipe'],env:{...process.env,...discovery.env,GIT_OPTIONAL_LOCKS:'0'}});
   let stderrBytes=0;
   child.stderr.on('data',chunk=>{stderrBytes+=chunk.length;}); // Drain, never retain/log paths or secrets.
   const completed=new Promise(resolve=>{child.once('error',e=>resolve({error:e}));child.once('close',(code,signal)=>resolve({code,signal}));});

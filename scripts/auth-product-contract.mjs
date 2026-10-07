@@ -4,7 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { runGit, inventoryPaths, filesystemPath } from './auth-git.mjs';
+import { collectProductInventory } from './auth-product-inventory.mjs';
+import { runGit, filesystemPath } from './auth-git.mjs';
 import { evaluateAdapter } from './auth-wizard.mjs';
 import { CAPABILITIES, CATALOG_VERSION, COMPATIBLE_BASELINE_VERSIONS } from './auth-capability-catalog.mjs';
 import { createBlockerHandoffs } from './auth-blocker-handoff.mjs';
@@ -18,7 +19,7 @@ const json = v => JSON.stringify(v, null, 2) + '\n';
 const readJson = async p => JSON.parse(await readFile(p, 'utf8'));
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 const text = v => typeof v === 'string' && v.trim().length > 0;
-const runtimeFiles = ['auth-git.mjs','auth-product-contract.mjs','auth-wizard.mjs','auth-capability-catalog.mjs','auth-lifecycle.mjs','auth-verification-profiles.mjs','auth-evidence-ownership.mjs','auth-conformance-binding.mjs','auth-blocker-handoff.mjs'];
+const runtimeFiles = ['auth-product-inventory.mjs','auth-git.mjs','auth-product-contract.mjs','auth-wizard.mjs','auth-capability-catalog.mjs','auth-lifecycle.mjs','auth-verification-profiles.mjs','auth-evidence-ownership.mjs','auth-conformance-binding.mjs','auth-blocker-handoff.mjs'];
 const verifyScript = `import { runProductCli } from './runtime/auth-product-contract.mjs';\nawait runProductCli(process.argv.slice(2), new URL('../', import.meta.url));\n`;
 const gateScript = `// Invoke this from a required build/release check. No AUTH service needed.\nimport './verify.mjs';\n`;
 const workflow = `name: AUTH product contract\non: [pull_request, push, workflow_dispatch]\npermissions:\n  contents: read\njobs:\n  auth-product-contract:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: node .auth-kit/ci.mjs verify\n`;
@@ -149,11 +150,7 @@ async function currentBinding(root,c) {
   const git=args=>runGit(args,{cwd:root});
   if(await realpath(git(['rev-parse','--show-toplevel']).trim())!==await realpath(root))fail('PRODUCT_REPOSITORY_ROOT_REQUIRED');
   const commit=git(['rev-parse','HEAD']).trim();
-  const source=Object.create(null);
-  for await(const f of inventoryPaths({cwd:root})) {
-    if(f.startsWith(`${kit}/`)||Object.hasOwn(source,f))continue;
-    try{source[f]=hash(await readFile(await safeFile(root,f)));}catch(e){if(e.code==='ENOENT')source[f]='DELETED';else throw e;}
-  }
+  const source=await collectProductInventory(root);
   if(!c.inputs.artifact.length||!c.inputs.configuration.length)fail('ARTIFACT_CONFIGURATION_INPUTS_REQUIRED');
   const artifact=await hashes(root,c.inputs.artifact),configuration=await hashes(root,c.inputs.configuration);
   return {productId:c.productId,revision:hash({commit,source}),commit,artifactDigest:hash(artifact),configurationDigest:hash(configuration)};
@@ -204,7 +201,7 @@ async function saveReport(root,report) {
 }
 export async function verifyProduct(root,options={}) {
   try {const state=await inspectProductBundle(root,options);const report=await assess(state);await saveReport(root,report);return report;}
-  catch(e){const status=e.code==='CONTRACT_MIGRATION_REQUIRED'?'INDETERMINATE':'FAIL';const report={verification:status,durability_verification:status,error:e.code && /^[A-Z_]+$/.test(e.code)?e.code:'BUNDLE_INVALID',capabilities:[],...(e.code?.startsWith('GIT_')&&e.diagnostic?{diagnostic:e.diagnostic}:{})};report.blockerHandoffs=createBlockerHandoffs(report,{repository:root});
+  catch(e){const status=e.code==='CONTRACT_MIGRATION_REQUIRED'?'INDETERMINATE':'FAIL';const report={verification:status,durability_verification:status,error:e.code && /^[A-Z_]+$/.test(e.code)?e.code:'BUNDLE_INVALID',capabilities:[],...((e.code?.startsWith('GIT_')||e.code==='PRODUCT_INVENTORY_UNSUPPORTED')&&e.diagnostic?{diagnostic:e.diagnostic}:{})};report.blockerHandoffs=createBlockerHandoffs(report,{repository:root});
     if(e.code==='CONTRACT_MIGRATION_REQUIRED') report.blockerHandoffs=report.blockerHandoffs.map(h=>({...h,nextOwner:'AUTH DEVELOPMENT',reasonCode:e.code,resumeCondition:'Supported contract schema migration',instruction:'STOP; preserve the existing contract and history.'}));
     // Do not recreate a deleted bundle merely to write a report.
     try{await safeFile(root,`${kit}/contract.json`);await saveReport(root,report);}catch{}return report;}
