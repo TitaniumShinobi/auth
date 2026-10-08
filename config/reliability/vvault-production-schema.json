@@ -1,0 +1,42 @@
+{
+  "contract": "life.auth.production-schema-contract/1",
+  "service": "vvault-backend",
+  "databaseAuthority": "vvault_body_20260504t123219z",
+  "schema": "ovvaults",
+  "servingBaseRevision": "540c248e19c541b8a6bf53154e5b527b7441d4a1",
+  "requiredMigrations": [
+    {
+      "ledger": "ovvaults.enrollment_schema_migrations",
+      "id": "0039",
+      "semanticId": "returning_owner_session_without_device_gate",
+      "artifactName": "0039_returning_owner_session_without_device_gate.up.sql",
+      "sourcePath": "vvault/migrations/0039_returning_owner_session_without_device_gate.up.sql",
+      "sha256": "a2fa93bae20a083e346fa68b49b82166d2b6ce7019099d9e6c3fd4948efc349a"
+    }
+  ],
+  "ledgerAdapter": {
+    "versionColumn": "version",
+    "checksumColumn": "checksum"
+  },
+  "authCriticalPaths": [
+    "vvault/server/vvault_auth_repository.py",
+    "vvault/server/chatty_body_service.py",
+    "vvault/server/vvault_web_server.py",
+    "vvault/server/vvault_auth_crypto.py"
+  ],
+  "databaseBounds": {
+    "connectTimeoutMs": 3000,
+    "statementTimeoutMs": 3000,
+    "acquireTimeoutMs": 3000,
+    "maxConnections": 10
+  },
+  "diskFloorBytes": 5368709120,
+  "diskFloorFraction": 0.15,
+  "provenance": {
+    "kind": "PRODUCTION_OWNER_HANDOFF",
+    "date": "2026-10-08",
+    "artifactPresentInServingBase": false,
+    "ledgerApplied": "reported by production owner; adapter must read again",
+    "priorFunctionRecoveryReference": "/root/vvault-pre-0039-validate-enrollment-session.sql"
+  }
+}

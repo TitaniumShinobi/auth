@@ -1,0 +1,110 @@
+--- a/scripts/deployment/droplet-deploy-vvault.sh
++++ b/scripts/deployment/droplet-deploy-vvault.sh
+@@ -19,6 +19,25 @@
+ PUBLISHED=0
+ RESTART_ATTEMPTED=0
+ MIGRATIONS_APPLIED=0
++SOURCE_CHANGED=0
++STAGING=""
++
++auth_gate() {
++  local phase="$1" ref="$2"
++  [[ "${AUTH_RELEASE_GATE:-}" = /* && -f "$AUTH_RELEASE_GATE" && ! -L "$AUTH_RELEASE_GATE" ]] || { log "AUTH_RELEASE_GATE required"; return 1; }
++  [[ "${AUTH_RELEASE_GATE_SHA256:-}" =~ ^[a-f0-9]{64}$ ]] || return 1
++  [[ "$(sha256sum "$AUTH_RELEASE_GATE" | cut -d' ' -f1)" == "$AUTH_RELEASE_GATE_SHA256" ]] || return 1
++  bash "$AUTH_RELEASE_GATE" "$phase" "$ref"
++}
++
++cleanup_stage() {
++  if [[ -n "$STAGING" ]]; then
++    [[ "$STAGING" == /tmp/vvault-auth-stage.* && -d "$STAGING" && ! -L "$STAGING" ]] || return 1
++    rm -rf -- "$STAGING"
++    STAGING=""
++  fi
++}
++trap cleanup_stage EXIT
+
+ log() { printf '[vvault-deploy] %s\n' "$*"; }
+
+@@ -183,7 +202,7 @@
+     cp -R "$BACKUP"/. "$FRONTEND"/
+   fi
+
+-  if [[ -n "$OLD_REF" ]]; then
++  if (( SOURCE_CHANGED )) && [[ -n "$OLD_REF" ]]; then
+     git_repo checkout --detach "$OLD_REF" >/dev/null 2>&1 || true
+   fi
+
+@@ -216,24 +235,25 @@
+   *) log "unsupported deployment mode"; exit 1 ;;
+ esac
+
+-if [[ "$DEPLOY_MODE" == "backend-only" ]]; then
+-  verify_runtime_contract 0
+-else
+-  verify_runtime_contract 1
+-fi
++verify_runtime_contract 1
+
+ OLD_REF="$(git_repo rev-parse HEAD)"
+ log "fetching $BRANCH"
+ git_repo fetch origin "$BRANCH:refs/remotes/origin/$BRANCH"
+-git_repo checkout -B "$BRANCH" "origin/$BRANCH"
+-NEW_REF="$(git_repo rev-parse HEAD)"
++NEW_REF="$(git_repo rev-parse "origin/$BRANCH")"
++# Gate the immutable candidate tree before changing the serving checkout.
++auth_gate candidate "$NEW_REF"
++SOURCE_CHANGED=1
++git_repo checkout -B "$BRANCH" "$NEW_REF"
+
+ if [[ "$DEPLOY_MODE" == "backend-only" ]]; then
+   log "restarting backend from the tracked production checkout (frontend and database unchanged)"
++  auth_gate candidate "$NEW_REF"
+   RESTART_ATTEMPTED=1
+   sudo systemctl restart "$SERVICE"
+   log "verifying canonical readiness"
+   verify_readiness
++  auth_gate serving "$NEW_REF"
+   trap - ERR INT TERM
+   log "backend-only deployment successful: $OLD_REF -> $NEW_REF"
+   exit 0
+@@ -242,10 +262,7 @@
+ log "creating verified database and object-storage recovery receipts"
+ ensure_backup_tools
+ prepare_enrollment_recovery_receipts
+-log "validating backup receipts and applying enrollment migrations"
+-VVAULT_DEPLOY_REF="$NEW_REF" \
+-  "$REPO/scripts/deployment/apply-vvault-enrollment-migrations.sh"
+-MIGRATIONS_APPLIED=1
++log "schema compatibility verified; migrations require a separate approved operation"
+
+ log "installing locked frontend dependencies"
+ npm ci --ignore-scripts
+@@ -258,17 +275,23 @@
+ mkdir -p "$BACKUP"
+ cp -a "$FRONTEND"/. "$BACKUP"/
+
++STAGING="$(mktemp -d /tmp/vvault-auth-stage.XXXXXXXX)"
++cp -a "$REPO/dist"/. "$STAGING"/
++auth_gate candidate "$NEW_REF"
+ log "publishing frontend"
++PUBLISHED=1
+ rm -rf "${FRONTEND:?}"/*
+-cp -R "$REPO/dist"/. "$FRONTEND"/
+-PUBLISHED=1
+-
++cp -R "$STAGING"/. "$FRONTEND"/
++
++auth_gate candidate "$NEW_REF"
+ log "restarting $SERVICE"
+ RESTART_ATTEMPTED=1
+ sudo systemctl restart "$SERVICE"
+
+ log "verifying canonical readiness"
+ verify_readiness
++auth_gate serving "$NEW_REF"
++cleanup_stage
+
+ trap - ERR INT TERM
+-log "deployment successful: $OLD_REF -> $NEW_REF (database migrations are forward-only)"
++log "deployment successful: $OLD_REF -> $NEW_REF (schema verified; no migrations applied)"

@@ -19,7 +19,8 @@
     "test:conformance": "bin/node20 --test src/test/auth-conformance-fixture.test.mjs",
     "test:resource-authorization": "bin/node20 scripts/test-resource-authorization.mjs",
     "test:assertion-repair": "bin/node20 --test src/test/auth-assertion-repair.test.mjs src/test/canonical-owner.test.mjs src/test/provider-identity-tokens.test.mjs src/test/product-session-provider-proof.test.mjs",
-    "test:enrollment": "bin/node20 --test src/test/enrollment-handoff.test.mjs src/test/enrollment-wizard.test.mjs"
+    "test:enrollment": "bin/node20 --test src/test/enrollment-handoff.test.mjs src/test/enrollment-wizard.test.mjs",
+    "test:reliability": "bin/node20 --test scripts/auth-release-reliability.test.mjs scripts/auth-production-host.test.mjs scripts/auth-vvault-deployment.test.mjs && python3 -B scripts/auth-host-database.test.py"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

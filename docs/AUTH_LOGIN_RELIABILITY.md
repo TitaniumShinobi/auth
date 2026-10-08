@@ -6,7 +6,7 @@ The 2026-10-08 production handoff reports successful Google identity verificatio
 
 Read-only host inspection in this task found `/opt/auth` resolving to revision `5f1176186b3bab33769745dfce5f1d1e127ffaeb`, `/opt/vvault-public` resolving to `540c248e19c541b8a6bf53154e5b527b7441d4a1`, both services active, root capacity 90%, and 3,470,352 KiB available (about 3.31 GiB). No deployment or database writes occurred.
 
-The inspected local VVAULT deployment script publishes/restarts before checking `/api/ready`. Local VVAULT source has a *different* `0039_paired_welcome_outbox` migration and multiple migration ledgers. It is not production provenance for the reported incident. A numeric migration prefix must never establish compatibility. Use the serving/candidate release's exact ledger identity, migration identifier and SHA-256.
+The read-only recovered production deployment script (SHA-256 `c5410372b282d0e9c33a54f7071095b87e8a76de0f9ec4389e01ccb941d2d1fb`) has full-mode backups/migration handling, but backend-only skips migrations and checks shallow readiness after restart. The serving 540c248e tree contains no tracked 0039 artifact. Local `0039_paired_welcome_outbox.up.sql` is an untracked proposal on `hotfix/vvault-recovery-email`, with header referencing older deployment 6234b6bf; no committed history was found for it. Its SHA-256 is `6b6266344e90cf652c3bbbd1883598ade6b39b2f8e57cca4c8bc1434e7335a8c`. This is an uncommitted numbering collision, not proof of two committed migrations. Production's different 0039 was applied separately according to the owner. Exact ledger + semantic artifact + SHA-256 must agree; prefix alone is never authority.
 
 ## Signals
 
@@ -23,7 +23,7 @@ AUTH's generic policy is `scripts/auth-release-reliability.mjs`; its executable 
 node scripts/auth-cli.mjs reliability check /absolute/manifest.json /absolute/adapter.mjs ADAPTER_SHA256
 ```
 
-The manifest (`life.auth.release-reliability/1`) declares `service`, candidate `revision`, SHA-256 `runtimeDigest` and `configurationDigest`, `databaseAuthority` (non-secret identity/reference), and nonempty `requiredMigrations:[{ledger,id,sha256}]`. It must come from the reviewed release contract, not guessed numbering or a different checkout. `databaseBounds` specifies positive `connectTimeoutMs`, `statementTimeoutMs`, `acquireTimeoutMs` (each <=10000), and `maxConnections` (<=100). Proposed initial bounds: 3000/3000/3000 milliseconds and 10 connections, subject to DB operator capacity review. No DSN or credential belongs in the manifest.
+The manifest (`life.auth.release-reliability/1`) declares `service`, candidate `revision`, SHA-256 `runtimeDigest` and `configurationDigest`, `databaseAuthority` (non-secret identity/reference), and nonempty `requiredMigrations:[{ledger,id,semanticId,artifactName,sourcePath,sha256}]`. It must come from the reviewed release contract, not guessed numbering or a different checkout. `databaseBounds` specifies positive `connectTimeoutMs`, `statementTimeoutMs`, `acquireTimeoutMs` (each <=10000), and `maxConnections` (<=100). Proposed initial bounds: 3000/3000/3000 milliseconds and 10 connections, subject to DB operator capacity review. No DSN or credential belongs in the manifest.
 
 Set `diskFloorBytes` >=5368709120 and `diskFloorFraction` >=0.15. The gate uses the larger floor. Warning starts below the larger of 8 GiB or 20%; at/below required headroom the deployment gate refuses. Current observed host headroom fails this policy. Budget peak staging/build space separately; stage must abort before crossing the floor. Never reclaim canonical files, databases, snapshots, or recovery material merely to pass.
 
@@ -50,10 +50,14 @@ For failures: use the correlation ID; compare serving artifact/config with the r
 ## Explicit deployment plan — approval required, nothing activated
 
 1. VVAULT production owner supplies exact serving/candidate migration paths, ledger identifiers/checksums and current non-secret compatibility observations. Keep production's verified 0039 fix; do not substitute local paired-welcome 0039.
-2. AUTH/deployment owner implements and reviews the host adapter against those authoritative contracts and existing datasource permissions. Verify effective timeout/pool settings, safe proof producer, alert destination, and rollback compatibility in disposable tests. There is no supplied production adapter or production manifest yet.
+2. Review the concrete `scripts/auth-production-host.mjs` / `auth-host-database.py` adapter and `integrations/vvault/deployment-reliability.patch`. The exact schema identity is retained in `config/reliability/vvault-production-schema.json`; this is not a completed release manifest. Recover the missing SQL source, then prepare a manifest with the protected host configuration. Effective application timeout/pool proof, safe acceptance producer, alert destination, and rollback compatibility remain operator inputs.
 3. Review this AUTH delta against the actual serving release before selecting a candidate; do not deploy the entire development branch blindly. Build and run focused regressions; bind hashes to that candidate.
 4. Review disk cleanup candidates; retain canonical/recovery data and active+rollback artifacts. Obtain a fresh filesystem measurement above the safety floor and staging reserve. No cleanup is performed in this task.
 5. Submit the exact candidate, manifest, adapter digest, non-secret `AUTH_RELIABILITY_MANIFEST`, `AUTH_RELIABILITY_ADAPTER`, `AUTH_RELIABILITY_ADAPTER_SHA256` references, approved monitor/alert config and rollback artifact for explicit deployment approval.
 6. After approval, integrate the guarded lifecycle into the deployment owner's existing pipeline **before** publish/restart; install approved log/monitor configuration. No migrations are executed by AUTH. Validate `/ready/auth`, alert delivery, and controlled returning-user callback/session acceptance before declaring production fixed.
 
 Source tests prove the generic guard and recovery behavior. They do not establish deployment integration, live canonical DB readiness, notification delivery, production retention, or production login acceptance. These remain explicit owner/operator gates.
+
+## Source integration receipt
+
+See [VVAULT integration](../integrations/vvault/README.md) for exact host fields, manifest preparation, failure gates, protected receipt trust, and deployment limits. Source code and deterministic deployment tests exist; nothing is installed or production-proven. The old local script is not the patch baseline. No GRID authority evidence is used.

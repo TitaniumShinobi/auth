@@ -9,10 +9,11 @@ export const digest=x=>sha(JSON.stringify(canonical(x)));
 const fail=code=>{throw Object.assign(new Error(code),{code});};
 const id=x=>typeof x==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,255}$/.test(x);
 const hash=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
+const hostFailures=new Set(['HOST_COMMAND_FAILED','HOST_CONFIGURATION_DRIFT','SCHEMA_MANIFEST_MISMATCH','SCHEMA_CONTRACT_REQUIRED','REQUIRED_SOURCE_ARTIFACT_ABSENT','MIGRATION_SOURCE_CHECKSUM_MISMATCH','MIGRATION_NAMESPACE_COLLISION','MIGRATION_SEMANTIC_IDENTITY_MISMATCH','CANDIDATE_REVISION_REQUIRED','CANDIDATE_REVISION_MISMATCH','DATABASE_WORKER_DRIFT','SERVING_PROCESS_MISMATCH','SERVING_REVISION_MISMATCH','SERVING_START_UNKNOWN','SERVING_ARTIFACT_DRIFT','SERVING_CONFIGURATION_NEWER_THAN_PROCESS','SERVING_COMMAND_AMBIGUOUS','CONFIGURATION_REFERENCE_UNSAFE','DATASOURCE_REFERENCE_NOT_BOUND']);
 export const GIB=1024**3;
 export function validateManifest(m){
  if(m?.contract!=='life.auth.release-reliability/1'||!id(m.service)||!id(m.databaseAuthority)||!id(m.revision)||!hash(m.runtimeDigest)||!hash(m.configurationDigest)||!Array.isArray(m.requiredMigrations)||!m.requiredMigrations.length)fail('RELEASE_MANIFEST_REQUIRED');
- const keys=new Set();for(const x of m.requiredMigrations){const key=x.ledger+'/'+x.id;if(!id(x.id)||!id(x.ledger)||!hash(x.sha256)||keys.has(key))fail('INVALID_MIGRATION_CONTRACT');keys.add(key);}
+ const keys=new Set();for(const x of m.requiredMigrations){const key=x.ledger+'/'+x.id;if(keys.has(key))fail('MIGRATION_NAMESPACE_COLLISION');if(!id(x.id)||!id(x.ledger)||!id(x.semanticId)||!id(x.artifactName)||x.artifactName.includes('/')||!hash(x.sha256))fail('INVALID_MIGRATION_CONTRACT');keys.add(key);}
  if(!Number.isSafeInteger(m.diskFloorBytes)||m.diskFloorBytes<5*GIB||!Number.isFinite(m.diskFloorFraction)||m.diskFloorFraction<0.15||m.diskFloorFraction>0.5)fail('DISK_SAFETY_FLOOR_REQUIRED');
  for(const key of ['connectTimeoutMs','statementTimeoutMs','acquireTimeoutMs','maxConnections'])if(!Number.isInteger(m.databaseBounds?.[key])||m.databaseBounds[key]<1||m.databaseBounds[key]>(key==='maxConnections'?100:10000))fail('DATABASE_BOUNDS_REQUIRED');
  return m;
@@ -37,7 +38,7 @@ export function assessRelease(m,o,{now=Date.now(),maxAgeMs=60000,phase='candidat
  add('database_bounds',bound&&Object.entries(m.databaseBounds).every(([key,limit])=>Number.isInteger(o?.database?.bounds?.[key])&&o.database.bounds[key]>0&&o.database.bounds[key]<=limit));
  for(const required of m.requiredMigrations){
   const rows=(Array.isArray(o?.migrations)?o.migrations:[]).filter(r=>r.id===required.id&&r.ledger===required.ledger);
-  add('migration:'+required.ledger+'/'+required.id,bound?(rows.length===1&&rows[0].applied===true&&rows[0].sha256===required.sha256):undefined);
+  add('migration:'+required.ledger+'/'+required.id,bound?(rows.length===1&&rows[0].applied===true&&rows[0].sha256===required.sha256&&rows[0].semanticId===required.semanticId&&rows[0].artifactName===required.artifactName&&rows[0].sourceVerified===true):undefined);
  }
  for(const name of ['session_issuance','callback_completion']){
   const proof=o?.probes?.[name],t=Date.parse(proof?.observedAt);
@@ -68,6 +69,7 @@ export async function boundedRead(operation,{timeoutMs=3000,retries=1,invalidate
   catch(e){
    // Never retry timeout/unknown outcomes or mutations. Only documented read-only
    // connection failures may retry; the adapter must cancel/reset its driver pool.
+   if(hostFailures.has(e?.code))fail(e.code);
    if(attempt>=retries||!['ECONNRESET','ECONNREFUSED'].includes(e?.code))fail(e?.code==='DATABASE_READ_TIMEOUT'?'DATABASE_READ_TIMEOUT':'DATABASE_UNAVAILABLE');
    await boundedRead(()=>invalidatePool(),{timeoutMs:Math.max(1,deadline-Date.now()),retries:0});
   }finally{clearTimeout(timer);}
@@ -75,8 +77,8 @@ export async function boundedRead(operation,{timeoutMs=3000,retries=1,invalidate
 }
 export async function observeRelease(m,adapter,options={}){
  validateManifest(m);
- try{return assessRelease(m,await boundedRead(signal=>adapter.observeReadOnly(m,signal),{...options,invalidatePool:()=>adapter.invalidatePool?.()}),options);}
- catch{return {contract:m.contract,service:m.service,revision:m.revision,manifestDigest:digest(m),ready:false,verification:'INDETERMINATE',httpStatus:503,checks:[{id:'database_connectivity',result:'INDETERMINATE'}],alerts:[{code:'AUTH_DEPENDENCY_UNAVAILABLE',severity:'critical'}]};}
+ try{return assessRelease(m,await boundedRead(signal=>adapter.observeReadOnly(m,{...signal,phase:options.phase||'candidate'}),{...options,invalidatePool:()=>adapter.invalidatePool?.()}),options);}
+ catch(e){return {reasonCode:/^[A-Z_]+$/.test(e?.code||e?.message||'')?(e.code||e.message):'HOST_OBSERVATION_UNAVAILABLE',contract:m.contract,service:m.service,revision:m.revision,manifestDigest:digest(m),ready:false,verification:'INDETERMINATE',httpStatus:503,checks:[{id:'host_observation',result:'INDETERMINATE'}],alerts:[{code:'AUTH_DEPENDENCY_UNAVAILABLE',severity:'critical'}]};}
 }
 export async function guardedRelease(m,adapter,authorization){
  validateManifest(m);
