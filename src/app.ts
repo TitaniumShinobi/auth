@@ -1,3 +1,5 @@
+import { loginReadiness, type LoginReadinessProbe } from './auth/loginReadiness.js';
+import { sendRecoverableFailure } from './auth/recoverableFailure.js';
 import { verifyVvaultSessionProof, verifyChattyConsentManifest } from './auth/vvaultSessionFederation.js';
 import { createEnrollmentConsent } from './auth/enrollmentConsent.js';
 import { mountEnrollmentHost } from './auth/enrollmentHost.js';
@@ -1384,6 +1386,7 @@ function mapTranscriptPayloadToAskThread(payload: any, target: HydroAskTarget) {
 }
 
 type CreateAuthAppOptions = {
+  authenticationReadiness?: LoginReadinessProbe;
   /** Explicit trusted host integration. No resource mapping or admission fallback is inferred. */
   resourceAuthorization?: Omit<ResourceAuthorizationOptions, 'sessionActive'> & { workloads: readonly ResourceWorkload[] };
   magicEmailDelivery?: MagicEmailDelivery;
@@ -1693,10 +1696,11 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
   app.use(express.urlencoded({ extended: false }));
   app.use((req, _res, next) => {
     req._rid = crypto.randomBytes(8).toString('hex');
+    _res.setHeader('X-Request-ID',req._rid);
     next();
   });
   app.use(async (req, res, next) => {
-    if (req.path === '/health' || req.path === '/ready') {
+    if (req.path === '/health' || req.path === '/ready' || req.path === '/ready/auth') {
       return next();
     }
     try {
@@ -1707,6 +1711,7 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       }
       return next();
     } catch (error) {
+      if(req.path.startsWith('/api/auth/')&&req.path.endsWith('/callback'))return sendRecoverableFailure(req,res,503,'temporarily_unavailable');
       if (error instanceof AuthConfigSelectionError) {
         return res.status(error.status).json({
           ok: false,
@@ -1719,21 +1724,22 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
   });
 
   app.get('/health', (_req, res) => {
-    res.json({ ok: true, service: 'auth' });
+    res.json({ ok: true, service: 'auth', state: 'OPTIONAL_SERVICES_READY', scope: 'PROCESS_ONLY' });
+  });
+  app.get('/ready/auth', async (_req,res) => {
+    const report=await loginReadiness(options.authenticationReadiness);
+    res.setHeader('Cache-Control','no-store');
+    return res.status(report.httpStatus).json(report);
   });
   app.get('/ready', (_req, res) => {
-    res.json({ ok: true, ready: true, service: 'auth' });
+    res.json({ ok: true, ready: true, service: 'auth', scope: 'PROCESS_AND_ROUTES_ONLY', authenticationReady: null });
   });
   app.get('/favicon.ico', (_req, res) => res.status(204).send());
   // Terminal compatibility endpoint; a browser return is never session proof.
   app.get('/return', (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    return res.status(req.query.error ? 400 : 409).json({
-      ok: false, state: 'RECOVERABLE_ERROR',
-      error: req.query.error ? 'AUTHENTICATION_FAILED' : 'DESKTOP_HANDOFF_REQUIRED',
-      message: 'Return to the application and start sign-in again.',
-    });
+    return sendRecoverableFailure(req,res,req.query.error ? 400 : 409,req.query.error ? 'AUTHENTICATION_FAILED' : 'DESKTOP_HANDOFF_REQUIRED');
   });
   logStartupStage('middleware_initialized');
 
@@ -3074,38 +3080,38 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
     const oauthError = String(req.query.error || '');
     const code = String(req.query.code || '');
     const state = String(req.query.state || '');
-    const stateRecord = await consumeOAuthState(ephemeralStore, providerId, state);
+    let stateRecord;
+    try { stateRecord = await consumeOAuthState(ephemeralStore, providerId, state); }
+    catch { return sendRecoverableFailure(req,res,503,'temporarily_unavailable'); }
     let config: AuthAppConfig;
     try {
       config = await getConfigForRequest(req, stateRecord?.origin);
     } catch (error) {
       if (error instanceof AuthConfigSelectionError) {
-        return res.status(error.status).json({
-          ok: false,
-          error: error.code,
-          message: error.message,
-        });
+        return sendRecoverableFailure(req,res,error.status,'temporarily_unavailable');
       }
-      throw error;
+      return sendRecoverableFailure(req,res,503,'temporarily_unavailable');
     }
-    const providers = resolveProviderClients(config, options.providers);
+    let providers;
+    try { providers = resolveProviderClients(config, options.providers); }
+    catch { return sendRecoverableFailure(req,res,503,'temporarily_unavailable'); }
     async function failCallback(reason: string, status = 400) {
       res.setHeader('Cache-Control', 'no-store');
       res.setHeader('Referrer-Policy', 'no-referrer');
       // Only consumed provider state may select an initiating native transaction.
-      if (stateRecord?.authorizationRequestId) {
+      try { if (stateRecord?.authorizationRequestId) {
         const pending = await ephemeralStore.takeJson<AuthorizationRequestRecord>(authorizationRequestKey(stateRecord.authorizationRequestId));
         const registered = pending && findPublicClient(config, pending.clientId);
         if (pending && registered && pending.appId === config.app.id &&
           Date.now() - pending.createdAt < AUTHORIZATION_REQUEST_TTL_SECONDS * 1000 &&
           validateRedirectUri(registered, pending.redirectUri)) {
           return res.redirect(appendAuthorizationResult(pending.redirectUri, {
-            error: reason, state: pending.state,
+            error: reason, state: pending.state, error_description: `Sign-in could not complete. Reference: ${req._rid}`,
           }));
         }
       }
-      return res.status(status).json({ ok: false, state: 'RECOVERABLE_ERROR', error: reason,
-        message: 'Sign-in could not complete. Retry from the application.' });
+      } catch { return sendRecoverableFailure(req,res,503,'temporarily_unavailable'); }
+      return sendRecoverableFailure(req,res,status,reason);
     }
     if (oauthError) {
       return failCallback(stateRecord ? 'access_denied' : 'invalid_state');
@@ -3120,7 +3126,9 @@ export async function createAuthApp(options: CreateAuthAppOptions = {}) {
       if (!code) {
         return failCallback('missing_code');
       }
-      const authContext = await readAuthenticatedUser(req, storage, cookieName, tokenConfig, refreshTokenStore, ephemeralStore);
+      let authContext;
+      try { authContext = await readAuthenticatedUser(req, storage, cookieName, tokenConfig, refreshTokenStore, ephemeralStore); }
+      catch { return failCallback('temporarily_unavailable',503); }
       if ('error' in authContext) {
         return failCallback('missing_session');
       }

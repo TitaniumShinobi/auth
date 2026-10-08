@@ -104,7 +104,14 @@ server.listen(port, host, () => {
         // Optional resource failures must not replace legacy authentication or leak configuration.
         console.error('[auth] resource runtime unavailable: RESOURCE_RUNTIME_CONFIGURATION_INVALID');
       }
-      const app = await createAuthApp({ configStore, resourceAuthorization: resourceRuntime?.authorization });
+      let authenticationReadiness;
+      if(process.env.AUTH_RELIABILITY_MANIFEST || process.env.AUTH_RELIABILITY_ADAPTER || process.env.AUTH_RELIABILITY_ADAPTER_SHA256){
+        try{
+          const {createReadinessObserver}=await import('../scripts/auth-release-reliability.mjs');
+          authenticationReadiness=await createReadinessObserver({manifestPath:process.env.AUTH_RELIABILITY_MANIFEST,adapterPath:process.env.AUTH_RELIABILITY_ADAPTER,adapterSha256:process.env.AUTH_RELIABILITY_ADAPTER_SHA256});
+        }catch{console.error('[auth] readiness configuration unavailable');}
+      }
+      const app = await createAuthApp({ configStore, authenticationReadiness, resourceAuthorization: resourceRuntime?.authorization });
       requestHandler = app as RequestListener;
       state = 'OPTIONAL_SERVICES_READY';
       logTiming('routes_ready', ` deferred_init_ms=${(elapsedMs() - moduleStartedAt).toFixed(2)}`);

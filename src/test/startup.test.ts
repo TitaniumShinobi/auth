@@ -107,7 +107,10 @@ test('readiness is distinct from early process health', async () => {
       await new Promise(resolve => setTimeout(resolve, 10));
     }
     assert.equal(status, 200);
-    assert.deepEqual(payload, { ok: true, ready: true, service: 'auth' });
+    assert.deepEqual(payload, { ok: true, ready: true, service: 'auth', scope: 'PROCESS_AND_ROUTES_ONLY', authenticationReady: null });
+    const authReady=await fetch(`http://127.0.0.1:${sample.port}/ready/auth`);
+    assert.equal(authReady.status,503);
+    assert.equal(((await authReady.json()) as {ready:boolean}).ready,false);
   } finally {
     await stop(sample);
   }

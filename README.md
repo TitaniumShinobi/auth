@@ -413,3 +413,5 @@ Use the [durable product contract](docs/AUTH_PRODUCT_DURABILITY.md) for installe
 Public/deployed authority evidence: [operator adapter and conformance export](docs/AUTH_REMOTE_CONFORMANCE.md).
 
 Verifier maintenance: [History-preserving verifier upgrades](docs/AUTH_VERIFIER_UPGRADE.md).
+
+Login deployment/readiness: [Reliability gate and operator runbook](docs/AUTH_LOGIN_RELIABILITY.md).

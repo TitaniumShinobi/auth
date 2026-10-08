@@ -1,0 +1,8 @@
+# REVIEW TEMPLATE ONLY: journald settings affect the host, not just AUTH.
+# Operator must review incident/recovery retention obligations before applying.
+[Journal]
+SystemMaxUse=512M
+SystemKeepFree=5G
+MaxRetentionSec=14day
+RateLimitIntervalSec=30s
+RateLimitBurst=2000

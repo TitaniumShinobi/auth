@@ -31,6 +31,7 @@ function usage(exitCode = 0) {
     'Usage:',
     '  auth acceptance --adapter <json> (read-only configured-runtime and live-acceptance report)',
     '  auth conformance --adapter <json> --app <id> --client-id <registered client> --out <new json> [--authority http://localhost:1111] [--deployment-adapter <reviewed.mjs> --deployment-sha256 <sha256>]',
+    '  auth reliability <check|monitor> <manifest.json> <reviewed-adapter.mjs> <adapter-sha256>',
     '  auth verifier-upgrade <prepare|apply|recover> <product-root> <authorization.json>',
     '  auth product <verify|maintain|establish|advance|amend> [approval.json] --repo <path>',
     '  auth setup --config <product-config.json> --inputs <input-paths.json> --adapter <observer.mjs> --repo <path> --app <id> --authorize',
@@ -580,7 +581,10 @@ async function validate(args) {
 
 try {
   const argv = process.argv.slice(2);
-  if (argv[0] === 'verifier-upgrade') {
+  if (argv[0] === 'reliability') {
+    const {releaseCli}=await import('./auth-release-reliability.mjs');
+    await releaseCli(argv.slice(1));
+  } else if (argv[0] === 'verifier-upgrade') {
     const { upgradeCli } = await import('./auth-verifier-upgrade.mjs');
     await upgradeCli(argv.slice(1));
   } else if (argv[0] === 'product') {

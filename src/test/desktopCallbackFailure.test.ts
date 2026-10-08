@@ -165,3 +165,14 @@ test('real SQLite GitHub new/returning identity completes native code exchange w
 for (const stage of ['profile','anchors','completion'] as const) {
   test(`real SQLite ${stage} failure returns native error and never a code`, () => sqliteNativeFlow(stage));
 }
+
+test('browser callback persistence failure renders recovery page with correlation ID',async()=>{
+ await server(async base=>{
+  const begin=await get(`${base}/api/auth/github`),state=new URL(begin.headers.get('location')!).searchParams.get('state');
+  const r=await fetch(`${base}/api/auth/github/callback?state=${state}&code=fixture`,{headers:{Accept:'text/html'},redirect:'manual'});
+  assert.equal(r.status,503);assert.match(r.headers.get('content-type')||'',/text\/html/);
+  const html=await r.text();assert(html.includes('Sign-in could not complete'));assert(!html.includes('PRIVATE_FIXTURE_VALUE'));assert(html.includes(r.headers.get('x-request-id')!));
+  const health=await get(base+'/ready');assert.equal(((await health.json()) as {scope:string}).scope,'PROCESS_AND_ROUTES_ONLY');
+  const readiness=await get(base+'/ready/auth');assert.equal(readiness.status,503);assert.equal(((await readiness.json()) as {ready:boolean}).ready,false);
+ });
+});
