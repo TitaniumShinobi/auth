@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {CONFORMANCE_CONTRACT,digest,seal} from './auth-conformance-binding.mjs';
 import {fixtureArtifacts,runControlledFixture} from './auth-conformance-fixture.mjs';
 export const REQUIRED_AUTHORITY_CHECKS = Object.freeze({
+ 'signin/invalid_credentials_rejected':['invalid_authorization_code_rejected','pkce_verifier_rejected','userinfo_unauthenticated_rejected','userinfo_authorized'],
  'session.validation/invalid_session_rejected':['invalid_token_rejected','userinfo_unauthenticated_rejected','userinfo_authorized'],
  'session.validation/expired_session_rejected':['expired_access_rejected','expired_refresh_rejected','userinfo_authorized'],
  'session.validation/revoked_session_rejected':['revoked_access_rejected','revoked_refresh_rejected'],

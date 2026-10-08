@@ -64,6 +64,7 @@ export async function generateConformance(args, root) {
   // An unauthenticated userinfo rejection is evidence of that probe only, not proof
   // that every invalid/expired/revoked session is rejected. Keep broader checks unresolved.
   const fixtureChecks={
+    'signin/invalid_credentials_rejected':['invalid_authorization_code_rejected','pkce_verifier_rejected','userinfo_unauthenticated_rejected','userinfo_authorized'],
     'relying_party.pkce/verifier_checked_when_applicable':['pkce_verifier_rejected','userinfo_authorized'],
     'relying_party.authorization/replay_rejected':['authorization_code_replay_rejected','userinfo_authorized'],
     'session.refresh/token_rotated':['refresh_rotation','userinfo_authorized'],

@@ -58,6 +58,8 @@ try {
   const exchange=(code,proof=verifier)=>call('/oauth/token',{grant_type:'authorization_code',client_id:'fixture-native',redirect_uri,code,code_verifier:proof});
   const refresh=token=>call('/oauth/token',{grant_type:'refresh_token',client_id:'fixture-native',refresh_token:token});
   const info=token=>call('/oauth/userinfo',undefined,{authorization:`Bearer ${token}`});
+  const invalidProof=await exchange('conformance-invalid-authorization-code');
+  check('invalid_authorization_code_rejected',invalidProof.status===400 && invalidProof.data?.error==='invalid_grant' && !invalidProof.data?.access_token && !invalidProof.data?.refresh_token && !invalidProof.headers['set-cookie']);
   const invalidCode=await code();
   check('pkce_verifier_rejected',(await exchange(invalidCode,'x'.repeat(64))).status===400);
   const validCode=await code();const issued=await exchange(validCode);

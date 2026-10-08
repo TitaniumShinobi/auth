@@ -82,3 +82,7 @@ node auth-export-authority-binding.mjs /product /outside/binding.json \
 ```
 
 If a new full observation really is required, use explicit `--refresh-source` instead of the report flags. This invokes canonical VERIFY once (including its source checks), not the old extra collector plus second VERIFY. It may take minutes on a large product. It never advances/establishes a baseline. Fast operation should take seconds for normal declared inputs, but large artifact files/history can take longer; it does not hash all product source. No guarantee of constant latency is made.
+
+## Sign-in proof rejection for provider-only clients
+
+`signin/invalid_credentials_rejected` applies independently of `providers.password`. The canonical wizard example explicitly declares signin TRUE with password FALSE. For an OAuth relying party, AUTH owns rejection of invalid authorization-code/PKCE proofs before issuing native credentials; GitHub owns verification of GitHub credentials. Conformance requires an unknown authorization code to return invalid_grant with no access/refresh tokens or session cookie, a wrong PKCE proof to be rejected, unauthenticated userinfo rejection, and a positive controlled userinfo case. This does not claim to test GitHub's password handling. Both generators use the same isolated serving-artifact fixture and leave missing fixture proof INDETERMINATE.
