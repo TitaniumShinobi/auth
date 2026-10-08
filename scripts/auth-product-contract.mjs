@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { verifiedArtifactHashes } from './auth-verifier-upgrade-chain.mjs';
 import { collectProductInventory } from './auth-product-inventory.mjs';
 import { runGit, filesystemPath } from './auth-git.mjs';
 import { evaluateAdapter } from './auth-wizard.mjs';
@@ -19,7 +20,7 @@ const json = v => JSON.stringify(v, null, 2) + '\n';
 const readJson = async p => JSON.parse(await readFile(p, 'utf8'));
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 const text = v => typeof v === 'string' && v.trim().length > 0;
-const runtimeFiles = ['auth-product-inventory.mjs','auth-git.mjs','auth-product-contract.mjs','auth-wizard.mjs','auth-capability-catalog.mjs','auth-lifecycle.mjs','auth-verification-profiles.mjs','auth-evidence-ownership.mjs','auth-conformance-binding.mjs','auth-blocker-handoff.mjs'];
+const runtimeFiles = ['auth-verifier-upgrade-chain.mjs','auth-product-inventory.mjs','auth-git.mjs','auth-product-contract.mjs','auth-wizard.mjs','auth-capability-catalog.mjs','auth-lifecycle.mjs','auth-verification-profiles.mjs','auth-evidence-ownership.mjs','auth-conformance-binding.mjs','auth-blocker-handoff.mjs'];
 const verifyScript = `import { runProductCli } from './runtime/auth-product-contract.mjs';\nawait runProductCli(process.argv.slice(2), new URL('../', import.meta.url));\n`;
 const gateScript = `// Invoke this from a required build/release check. No AUTH service needed.\nimport './verify.mjs';\n`;
 const workflow = `name: AUTH product contract\non: [pull_request, push, workflow_dispatch]\npermissions:\n  contents: read\njobs:\n  auth-product-contract:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: node .auth-kit/ci.mjs verify\n`;
@@ -110,7 +111,7 @@ export async function inspectProductBundle(root,{checkpoint}={}) {
   if(c.contract!==PRODUCT_CONTRACT)fail('CONTRACT_MIGRATION_REQUIRED');
   if(!['UNESTABLISHED','ESTABLISHED'].includes(c.state)||!text(c.productId))fail('INVALID_CONTRACT');
   const p=await readJson(await safeFile(root,`${kit}/provenance.json`));
-  if(hash(p)!==c.provenanceDigest || p.productId!==c.productId || hash(await hashes(root,artifactPaths))!==hash(p.files))fail('VERIFIER_OR_GATE_DRIFT');
+  if(hash(p)!==c.provenanceDigest || p.productId!==c.productId || hash(await verifiedArtifactHashes(root,artifactPaths.filter(f=>f!==`${kit}/runtime/auth-verifier-upgrade-chain.mjs`||Object.hasOwn(p.files,f)),hashes))!==hash(p.files))fail('VERIFIER_OR_GATE_DRIFT');
   await safeFile(root,`${kit}/observe.mjs`);
   for(const dir of ['history','baseline','reports'])await checkDirectories(root,`${kit}/${dir}`);
   const names=(await readdir(path.join(root,kit,'history'))).sort();
@@ -146,7 +147,7 @@ export async function inspectProductBundle(root,{checkpoint}={}) {
   return {root,contract:c,events,latest};
 }
 
-async function currentBinding(root,c) {
+export async function currentBinding(root,c) {
   const git=args=>runGit(args,{cwd:root});
   if(await realpath(git(['rev-parse','--show-toplevel']).trim())!==await realpath(root))fail('PRODUCT_REPOSITORY_ROOT_REQUIRED');
   const commit=git(['rev-parse','HEAD']).trim();
