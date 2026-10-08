@@ -165,10 +165,10 @@ async function observeProduct(state) {
   if(hash(await currentBinding(state.root,state.contract))!==hash(binding))fail('PRODUCT_CHANGED_DURING_OBSERVATION');
   return {...o,binding:{...binding,observedAt,runId}};
 }
-function historicalFailures(state,report,retired=[]) {
+export function historicalFailures(state,report,retired=[]) {
   const removed=new Set(retired),rows=new Map(report.capabilities.map(c=>[c.id,c]));
   return (state.latest?.obligations||[]).filter(x=>!removed.has(obligationKey(x))).filter(x=>{
-    const c=rows.get(x.capabilityId);return c?.applicability!=='TRUE'||c.implementation!=='ESTABLISHED'||c.verification!=='PASS'||c.checks.find(k=>k.id===x.checkId)?.result!=='PASS';
+    const c=rows.get(x.capabilityId);return c?.applicability!=='TRUE'||c.implementation!=='ESTABLISHED'||c.checks.find(k=>k.id===x.checkId)?.result!=='PASS';
   });
 }
 async function assess(state, {allowUnestablished=false,retired=[]}={}) {

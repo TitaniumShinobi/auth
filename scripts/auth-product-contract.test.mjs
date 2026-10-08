@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { CAPABILITIES } from './auth-capability-catalog.mjs';
-import { installProductBundle,verifyProduct,advanceProduct,inspectProductBundle,validateCatalogMigration,hash } from './auth-product-contract.mjs';
+import { installProductBundle,verifyProduct,advanceProduct,inspectProductBundle,validateCatalogMigration,hash,historicalFailures } from './auth-product-contract.mjs';
 
 const observe = `import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
@@ -139,4 +139,24 @@ test('generic setup CLI installs gate and durable bundle without consumer-specif
   assert.equal((await inspectProductBundle(root)).contract.state,'UNESTABLISHED');
   assert.equal((await verifyProduct(root)).verification,'FAIL');
  }finally{await rm(root,{recursive:true,force:true});}
+});
+
+// Frozen obligations protect individual checks, not unrelated sibling coverage.
+for (const [name, change, expected] of [
+ ['parent indeterminate with obligated PASS', {}, 0],
+ ['obligated FAIL', {result:'FAIL'}, 1],
+ ['obligated INDETERMINATE', {result:'INDETERMINATE'}, 1],
+ ['obligated missing', {missing:true}, 1],
+ ['applicability FALSE', {applicability:'FALSE'}, 1],
+ ['applicability INDETERMINATE', {applicability:'INDETERMINATE'}, 1],
+ ['implementation NOT_ESTABLISHED', {implementation:'NOT_ESTABLISHED'}, 1],
+ ['implementation INDETERMINATE', {implementation:'INDETERMINATE'}, 1],
+]) test(`check-level history: ${name}`, () => {
+ const obligation={capabilityId:'signin',checkId:'explicit_entry'};
+ const state={latest:{obligations:[obligation]}};
+ const report={capabilities:[{id:'signin',applicability:change.applicability||'TRUE',
+  implementation:change.implementation||'ESTABLISHED',verification:'INDETERMINATE',
+  checks:change.missing?[]:[{id:'explicit_entry',result:change.result||'PASS'},
+   {id:'unrelated_sibling',result:'INDETERMINATE'}]}]};
+ assert.equal(historicalFailures(state,report).length,expected);
 });
