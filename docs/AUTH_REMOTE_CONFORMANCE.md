@@ -67,14 +67,18 @@ Export only this existing-schema subset; no capabilities, credentials or source 
 
 Omit optional digests if not already established; do not insert placeholder strings. The authority operator must independently verify the declared authority revision against the real serving deployment. Unknown authority revision cannot be invented; exporter fails explicitly if absent.
 
-The supplied standalone `auth-export-authority-binding.mjs` uses only Node built-ins and the product's installed kit. Place it OUTSIDE the product. It runs fresh product VERIFY, invokes the existing collector, compares product/observer/contract bindings again, and exports only the allowlisted fields above. It writes normal kit verification reports but does not alter source/index, establish or advance a baseline. It requires no SSH and does not require VERIFY PASS merely to export a valid current binding. Execute in PowerShell:
+The standalone `auth-export-authority-binding.mjs` is placed OUTSIDE the product. Default operation reuses an explicitly reviewed report and its SHA-256. It does NOT call the observer, enumerate source, or run full VERIFY. It validates installed bundle/history/provenance, report product/revision/contract/head, observer hash, current Git HEAD, and streamed SHA-256 of declared artifact/configuration inputs. Inputs are checked again before export. Reports older than 24 hours or from the future are rejected, as are all digest/contract mismatches. No implicit refresh fallback occurs.
 
-```powershell
-$Grid = 'C:\Users\woods\Documents\GitHub\grid'
-$Out = Join-Path $env:TEMP ('grid-authority-binding-' + [guid]::NewGuid() + '.json')
-node .\auth-export-authority-binding.mjs $Grid $Out
-if ($LASTEXITCODE -ne 0) { throw 'Binding not exported; do not substitute guessed values' }
-Get-FileHash -Algorithm SHA256 $Out
+This is export of a reviewed snapshot binding, not certification that the whole current worktree is unchanged. Unbuilt/untracked source changes cannot be discovered without inventory (or a trusted platform journal, which AUTH does not currently provide). Such changes cannot receive PASS from cached evidence: subsequent product VERIFY recomputes the full source revision, and the existing authority verifier requires an exact match. Export never establishes or advances a baseline. Approval of the report SHA is operator review, not a digital signature or a defense against rewriting the entire local enforcement system.
+
+Authority declaration comes from `<NORMALIZED_PRODUCT_ID>_AUTH_AUTHORITY_ID` and `_REVISION`; normalization uppercases productId and replaces non-alphanumeric characters with underscores. Thus the existing GRID environment variable names are supported without product-specific dispatch. Missing or malformed declarations fail. Authority configuration/runtime digests must still be independently supplied/checked by the authority operator; consumer artifact digests are never mislabeled as authority digests.
+
+See the replacement exporter package README for exact Windows commands. Generic invocation:
+
+```sh
+node auth-export-authority-binding.mjs /product /outside/binding.json \
+  --report /product/.auth-kit/reports/REVIEWED.json \
+  --report-sha256 REVIEWED_REPORT_SHA256
 ```
 
-Return that sanitized JSON and its hash for authority-side generation. If a Git override is needed, preserve the pilot's existing AUTH_GIT_EXECUTABLE environment setting. Export is a binding handoff only, never authority evidence or baseline establishment.
+If a new full observation really is required, use explicit `--refresh-source` instead of the report flags. This invokes canonical VERIFY once (including its source checks), not the old extra collector plus second VERIFY. It may take minutes on a large product. It never advances/establishes a baseline. Fast operation should take seconds for normal declared inputs, but large artifact files/history can take longer; it does not hash all product source. No guarantee of constant latency is made.
