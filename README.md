@@ -409,3 +409,5 @@ Desktop repair packaging: [1.1.0 integration instructions](docs/DESKTOP_HANDOFF_
 ## Durable product integration
 
 Use the [durable product contract](docs/AUTH_PRODUCT_DURABILITY.md) for installed lifecycle protection: `auth setup` now installs the `.auth-kit` verifier, observation entrypoint, provenance and CI gate. Explicit establishment creates the reviewed baseline; `node .auth-kit/verify.mjs verify` automatically validates it and its check-level history. `maintain` reverifies; `advance` and `amend` require separate reviewed authorization. Raw `auth wizard --adapter` remains a diagnostic primitive, not a durable release gate. External required-status protection and live product evidence remain separate obligations.
+
+Public/deployed authority evidence: [operator adapter and conformance export](docs/AUTH_REMOTE_CONFORMANCE.md).

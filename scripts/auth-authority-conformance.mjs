@@ -10,6 +10,7 @@ const run = (cmd, args) => execFileSync(cmd, args, {encoding:'utf8',stdio:['igno
 
 /** Local existing LaunchAgent only. No account/session creation and no real credentials. */
 export async function generateConformance(args, root) {
+  if(args['deployment-adapter']) { const {generateRemoteConformance}=await import('./auth-remote-conformance.mjs');return generateRemoteConformance(args); }
   const adapter = JSON.parse(readFileSync(resolve(args.adapter),'utf8'));
   const origin = new URL(args.authority || 'http://localhost:1111');
   if (origin.origin !== 'http://localhost:1111' || origin.pathname !== '/' || origin.search || origin.hash || origin.username || origin.password) throw new Error('Only the established local AUTH authority is supported');

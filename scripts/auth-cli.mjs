@@ -30,7 +30,7 @@ function usage(exitCode = 0) {
   const output = [
     'Usage:',
     '  auth acceptance --adapter <json> (read-only configured-runtime and live-acceptance report)',
-    '  auth conformance --adapter <json> --app <id> --client-id <registered client> --out <new json> [--authority http://localhost:1111]',
+    '  auth conformance --adapter <json> --app <id> --client-id <registered client> --out <new json> [--authority http://localhost:1111] [--deployment-adapter <reviewed.mjs> --deployment-sha256 <sha256>]',
     '  auth product <verify|maintain|establish|advance|amend> [approval.json] --repo <path>',
     '  auth setup --config <product-config.json> --inputs <input-paths.json> --adapter <observer.mjs> --repo <path> --app <id> --authorize',
     '  auth setup --repo <path> --app <chatty|cleanhouse|code|vvault> [--dry-run | --authorize]',
@@ -63,7 +63,7 @@ function parseArgs(argv) {
       args.authorize = true;
       continue;
     }
-    if (['--repo', '--app', '--adapter', '--baseline', '--operator', '--outcome', '--capability', '--authority-evidence', '--authority-sha256', '--authority', '--client-id', '--out', '--profile', '--config', '--inputs', '--gate'].includes(token)) {
+    if (['--repo', '--app', '--adapter', '--baseline', '--operator', '--outcome', '--capability', '--authority-evidence', '--authority-sha256', '--authority', '--client-id', '--deployment-adapter', '--deployment-sha256', '--out', '--profile', '--config', '--inputs', '--gate'].includes(token)) {
       const value = rest[index + 1];
       if (!value || value.startsWith('--')) usage(1);
       args[token.slice(2)] = value;
