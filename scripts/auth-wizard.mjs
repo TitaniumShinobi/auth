@@ -88,7 +88,8 @@ export function evaluateAdapter(adapter, { baseline, operator = 'VERIFY', truste
   const verification = regressions.length || capabilities.some(entry => entry.verification === 'FAIL') ? 'FAIL'
     : unknown.length || capabilities.some(entry => entry.verification === 'INDETERMINATE') ? 'INDETERMINATE' : 'PASS';
   return applyVerificationProfile({ schemaVersion: 1, catalogVersion: CATALOG_VERSION, productId: adapter.productId, revision: adapter.revision,
-    operator, verification, authenticationRole: adapter.authenticationRole || 'UNSPECIFIED', capabilities, unknownCapabilities: unknown, unknownDeclarations, regressions,
+    operator, verification, authenticationRole: adapter.authenticationRole || 'UNSPECIFIED', productProfile:adapter.productProfile||null,
+    productCandidates:Array.isArray(adapter.productCandidates)?adapter.productCandidates:[], capabilities, unknownCapabilities: unknown, unknownDeclarations, regressions,
     decisions: capabilities.filter(entry => !['PASS', 'NOT_APPLICABLE'].includes(entry.verification)).map(entry => ({ id: entry.id,
       action: entry.applicability === 'INDETERMINATE' ? 'ESTABLISH_APPLICABILITY'
         : entry.implementation !== 'ESTABLISHED' ? 'ESTABLISH_IMPLEMENTATION' : 'VERIFY_OR_REPAIR' })) }, verificationProfile, baseline);

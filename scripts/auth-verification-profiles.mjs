@@ -17,7 +17,7 @@ const client = {
   'security.protocol':['csrf_or_request_binding_enforced'],
 };
 const runtimeFamilies=new Set(['session','enrollment','device_trust','consent','security','linking','email_identity']);
-export const VERIFICATION_PROFILES=Object.freeze(['RELYING_PARTY_CLIENT','ASSERTION_INTEGRATION','AUTHORITY_RUNTIME','FULL_AUTHORITY_CONFORMANCE']);
+export const VERIFICATION_PROFILES=Object.freeze(['PRODUCT_LOCAL','RELYING_PARTY_CLIENT','ASSERTION_INTEGRATION','AUTHORITY_RUNTIME','FULL_AUTHORITY_CONFORMANCE']);
 export function requiredByProfile(profile,row,check) {
   if(profile==='ASSERTION_INTEGRATION') return row.family==='assertion'||row.id==='security.failure'
     ||(row.family==='resource_authorization'&&row.applicability==='TRUE');
@@ -29,9 +29,11 @@ export function applyVerificationProfile(report,profile='FULL_AUTHORITY_CONFORMA
   if(!VERIFICATION_PROFILES.includes(profile))throw new Error('Unknown verification profile');
   if(profile==='RELYING_PARTY_CLIENT'&&report.authenticationRole!=='RELYING_PARTY')throw new Error('Client profile requires RELYING_PARTY authenticationRole');
   if(profile==='ASSERTION_INTEGRATION'&&report.authenticationRole!=='RELYING_PARTY')throw new Error('Assertion integration requires RELYING_PARTY authenticationRole');
+  const productChecks=profile==='PRODUCT_LOCAL'&&Array.isArray(report.productProfile?.requiredChecks)?new Set(report.productProfile.requiredChecks):null;
+  if(profile==='PRODUCT_LOCAL'&&(!report.productProfile?.id||!productChecks?.size))throw new Error('Product-local profile requires id and requiredChecks');
   const required=[],outside=[];
   for(const row of report.capabilities)for(const check of row.checks) {
-    const included=requiredByProfile(profile,row,check);
+    const included=profile==='PRODUCT_LOCAL'?productChecks.has(`${row.id}/${check.id}`):requiredByProfile(profile,row,check);
     const status=row.applicability==='FALSE'?'NOT_APPLICABLE':row.applicability!=='TRUE'?'INDETERMINATE'
       :row.implementation==='NOT_ESTABLISHED'?'FAIL':check.result==='FAIL'||row.lifecycle?.verification==='FAIL'?'FAIL'
       :row.implementation!=='ESTABLISHED'||row.lifecycle?.verification==='INDETERMINATE'?'INDETERMINATE':check.result;
@@ -48,8 +50,9 @@ export function applyVerificationProfile(report,profile='FULL_AUTHORITY_CONFORMA
   const declarationOwners={'counterparts:missing':{id:'cross_product.offer',family:'cross_product'},'emails:missing':{id:'auth_email.contract',family:'auth_email'},'welcome-emails:missing':{id:'welcome.email',family:'enrollment'}};
   const outsideProfileUnknowns=report.unknownCapabilities.filter(id=>!report.unknownDeclarations?.includes(id)&&declarationOwners[id]&&!requiredByProfile(profile,declarationOwners[id],{}));
   const blockingUnknowns=report.unknownCapabilities.filter(id=>!outsideProfileUnknowns.includes(id));
+  const missingProductChecks=profile==='PRODUCT_LOCAL'?[...productChecks].filter(key=>!required.some(item=>`${item.capabilityId}/${item.checkId}`===key)):[];
   const profileResult=profile==='FULL_AUTHORITY_CONFORMANCE'?report.verification:
-    profileRegressions.length||required.some(c=>c.verification==='FAIL')?'FAIL':missingAssertionObligation||blockingUnknowns.length||required.some(c=>c.verification==='INDETERMINATE')?'INDETERMINATE':'PASS';
+    profileRegressions.length||required.some(c=>c.verification==='FAIL')?'FAIL':missingAssertionObligation||blockingUnknowns.length||missingProductChecks.length||required.some(c=>c.verification==='INDETERMINATE')?'INDETERMINATE':'PASS';
   return {...report,verification_profile:profile,profile_verification:profileResult,full_verification:report.verification,
-    profile_required_checks:required,profile_regressions:profileRegressions,outside_profile_unresolved_checks:outside,outside_profile_unknowns:outsideProfileUnknowns};
+    profile_required_checks:required,profile_regressions:profileRegressions,missing_product_checks:missingProductChecks,outside_profile_unresolved_checks:outside,outside_profile_unknowns:outsideProfileUnknowns};
 }

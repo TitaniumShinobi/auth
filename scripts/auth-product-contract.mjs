@@ -85,9 +85,37 @@ export async function installProductBundle(root, { authorized = false, productId
 
 function protectedPolicy(c) { return {contract:c.contract,productId:c.productId,profile:c.profile,inputs:c.inputs,provenanceDigest:c.provenanceDigest}; }
 function obligations(report) {
-  return report.capabilities.filter(c=>c.applicability==='TRUE').flatMap(c=>c.checks.filter(x=>x.result==='PASS').map(x=>({capabilityId:c.id,checkId:x.id})));
+  const catalog=report.capabilities.filter(c=>c.applicability==='TRUE').flatMap(c=>c.checks.filter(x=>x.result==='PASS').map(x=>({capabilityId:c.id,checkId:x.id})));
+  const product=(report.productCandidates||[]).filter(x=>x.applicability==='TRUE'&&x.establishment==='ESTABLISHED'&&x.verification==='PASS')
+    .map(x=>({productObligationId:x.id,definitionDigest:hash(x.definition)}));
+  return [...catalog,...product];
 }
-const obligationKey = x => `${x.capabilityId}/${x.checkId}`;
+export function establishmentBlockers(report) {
+  if(report?.profile_verification!=='PASS')return [{reason:'PROFILE_VERIFICATION_REQUIRED'}];
+  const blockers=[];
+  for(const capability of report.capabilities||[]) {
+    if(capability.applicability==='FALSE')continue;
+    if(capability.applicability!=='TRUE') {
+      blockers.push({capabilityId:capability.id,reason:'APPLICABILITY_UNRESOLVED'});
+      continue;
+    }
+    if(capability.implementation!=='ESTABLISHED')blockers.push({capabilityId:capability.id,reason:capability.implementation==='NOT_ESTABLISHED'?'REALIZATION_GAP':'IMPLEMENTATION_UNRESOLVED'});
+    for(const check of capability.checks||[])if(check.result!=='PASS')blockers.push({capabilityId:capability.id,checkId:check.id,reason:check.result==='FAIL'?'FAIL':'EVIDENCE_INDETERMINATE'});
+  }
+  for(const candidate of report.productCandidates||[]) {
+    if(!text(candidate?.id)) { blockers.push({reason:'INVALID_PRODUCT_CANDIDATE'}); continue; }
+    if(candidate.applicability==='FALSE') {
+      if(!text(candidate.rationale))blockers.push({productObligationId:candidate.id,reason:'NOT_APPLICABLE_RATIONALE_REQUIRED'});
+      continue;
+    }
+    if(candidate.applicability!=='TRUE') { blockers.push({productObligationId:candidate.id,reason:'APPLICABILITY_UNRESOLVED'}); continue; }
+    if(candidate.establishment!=='ESTABLISHED')blockers.push({productObligationId:candidate.id,reason:candidate.establishment==='REALIZATION_GAP'?'REALIZATION_GAP':'ESTABLISHMENT_UNRESOLVED'});
+    if(candidate.verification!=='PASS')blockers.push({productObligationId:candidate.id,reason:candidate.verification==='FAIL'?'FAIL':'EVIDENCE_INDETERMINATE'});
+    if(candidate.definition===undefined)blockers.push({productObligationId:candidate.id,reason:'DEFINITION_REQUIRED'});
+  }
+  return blockers;
+}
+const obligationKey = x => x.productObligationId?`product:${x.productObligationId}`:`${x.capabilityId}/${x.checkId}`;
 function mergeObligations(old,report,retired=[]) {
   const removed=new Set(retired);
   const map=new Map(old.filter(x=>!removed.has(obligationKey(x))).map(x=>[obligationKey(x),x]));
@@ -114,8 +142,8 @@ export async function inspectProductBundle(root,{checkpoint}={}) {
   if(hash(p)!==c.provenanceDigest || p.productId!==c.productId || hash(await verifiedArtifactHashes(root,artifactPaths.filter(f=>f!==`${kit}/runtime/auth-verifier-upgrade-chain.mjs`||Object.hasOwn(p.files,f)),hashes))!==hash(p.files))fail('VERIFIER_OR_GATE_DRIFT');
   await safeFile(root,`${kit}/observe.mjs`);
   for(const dir of ['history','baseline','reports'])await checkDirectories(root,`${kit}/${dir}`);
-  const names=(await readdir(path.join(root,kit,'history'))).sort();
-  const baselines=(await readdir(path.join(root,kit,'baseline'))).sort();
+  const names=(await readdir(path.join(root,kit,'history'))).filter(name=>name!=='.gitkeep').sort();
+  const baselines=(await readdir(path.join(root,kit,'baseline'))).filter(name=>name!=='.gitkeep').sort();
   if(c.state==='UNESTABLISHED') {
     if(c.head!==null||c.sequence!==0||names.length||baselines.length||checkpoint)fail('HISTORY_RESET');
     return {root,contract:c,events:[],latest:null};
@@ -167,8 +195,12 @@ async function observeProduct(state) {
   return {...o,binding:{...binding,observedAt,runId}};
 }
 export function historicalFailures(state,report,retired=[]) {
-  const removed=new Set(retired),rows=new Map(report.capabilities.map(c=>[c.id,c]));
+  const removed=new Set(retired),rows=new Map(report.capabilities.map(c=>[c.id,c])),products=new Map((report.productCandidates||[]).map(x=>[x.id,x]));
   return (state.latest?.obligations||[]).filter(x=>!removed.has(obligationKey(x))).filter(x=>{
+    if(x.productObligationId) {
+      const current=products.get(x.productObligationId);
+      return current?.applicability!=='TRUE'||current.establishment!=='ESTABLISHED'||current.verification!=='PASS'||hash(current.definition)!==x.definitionDigest;
+    }
     const c=rows.get(x.capabilityId);return c?.applicability!=='TRUE'||c.implementation!=='ESTABLISHED'||c.checks.find(k=>k.id===x.checkId)?.result!=='PASS';
   });
 }
@@ -218,6 +250,7 @@ export async function advanceProduct(root,authorization,{checkpoint}={}) {
   const report=await assess(state,{allowUnestablished:true,retired});
   if(report.binding.revision!==a.revision)fail('AUTHORIZATION_REVISION_MISMATCH');
   if(report.verification!=='PASS')fail(report.error||'VERIFICATION_REQUIRED');
+  if(!state.latest&&establishmentBlockers(report).length)fail('ESTABLISHMENT_CANDIDATES_UNRESOLVED');
   if(!state.latest && !obligations(report).length)fail('NO_VERIFIED_OBLIGATIONS');
   const sequence=state.contract.sequence+1, name=`${String(sequence).padStart(6,'0')}.json`;
   const payload={sequence,previousContractDigest:hash(state.contract),previous:state.contract.head,previousBaselineDigest:state.latest?.baselineDigest||null,baselineDigest:hash(report),productId:state.contract.productId,revision:report.revision,catalogVersion:CATALOG_VERSION,catalog:catalogSnapshot(),policy:protectedPolicy(state.contract),observerDigest:hash(await readFile(path.join(state.root,kit,'observe.mjs'))),operation:a.operation,retired,obligations:mergeObligations(state.latest?.obligations||[],report,retired),changedChecks:changedChecks(state.latest?.baseline,report),authorization:a,timestamp:new Date().toISOString(),runId:report.binding.runId,provenance:report.binding};

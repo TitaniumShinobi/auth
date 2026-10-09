@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { CAPABILITIES } from './auth-capability-catalog.mjs';
-import { installProductBundle,verifyProduct,advanceProduct,inspectProductBundle,validateCatalogMigration,hash,historicalFailures } from './auth-product-contract.mjs';
+import { installProductBundle,verifyProduct,advanceProduct,inspectProductBundle,validateCatalogMigration,hash,historicalFailures,establishmentBlockers } from './auth-product-contract.mjs';
 
 const observe = `import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
@@ -129,6 +129,31 @@ test('fresh evidence with wrong product/revision is rejected before establishmen
  await writeFile(path.join(root,'.auth-kit/observe.mjs'),observe.replace('revision:binding.revision',"revision:'stale'"));
  assert.equal((await verifyProduct(root)).error,'EVIDENCE_BINDING_MISMATCH');
 },{established:false}));
+test('establishment cannot silently omit applicable unresolved candidates',()=>{
+ const base={profile_verification:'PASS',capabilities:[]};
+ assert.deepEqual(establishmentBlockers({...base,capabilities:[{id:'not-applicable',applicability:'FALSE',implementation:'NOT_ESTABLISHED',checks:[]}]}),[]);
+ for(const capability of [
+  {id:'unknown',applicability:'INDETERMINATE',implementation:'INDETERMINATE',checks:[]},
+  {id:'gap',applicability:'TRUE',implementation:'NOT_ESTABLISHED',checks:[{id:'proof',result:'PASS'}]},
+  {id:'missing',applicability:'TRUE',implementation:'ESTABLISHED',checks:[{id:'proof',result:'INDETERMINATE'}]},
+  {id:'failed',applicability:'TRUE',implementation:'ESTABLISHED',checks:[{id:'proof',result:'FAIL'}]},
+ ])assert.ok(establishmentBlockers({...base,capabilities:[capability]}).length);
+ assert.ok(establishmentBlockers({...base,profile_verification:'INDETERMINATE'}).length);
+});
+test('product-local candidate obligations freeze by definition and regress independently of catalog checks',()=>{
+ const definition={requirement:'canonical schema compatibility',owner:'PRODUCT'};
+ const report={capabilities:[],productCandidates:[{id:'schema.compatibility',applicability:'TRUE',establishment:'ESTABLISHED',verification:'PASS',definition}]};
+ assert.deepEqual(establishmentBlockers({profile_verification:'PASS',...report}),[]);
+ const state={latest:{obligations:[{productObligationId:'schema.compatibility',definitionDigest:hash(definition)}]}};
+ assert.equal(historicalFailures(state,report).length,0);
+ assert.equal(historicalFailures(state,{...report,productCandidates:[{...report.productCandidates[0],definition:{...definition,requirement:'different'}}]}).length,1);
+ assert.equal(historicalFailures(state,{...report,productCandidates:[{...report.productCandidates[0],verification:'INDETERMINATE'}]}).length,1);
+});
+test('not-applicable product candidate requires an explicit rationale',()=>{
+ const base={profile_verification:'PASS',capabilities:[]};
+ assert.equal(establishmentBlockers({...base,productCandidates:[{id:'optional',applicability:'FALSE'}]}).length,1);
+ assert.equal(establishmentBlockers({...base,productCandidates:[{id:'optional',applicability:'FALSE',rationale:'Product has no such flow'}]}).length,0);
+});
 test('generic setup CLI installs gate and durable bundle without consumer-specific dispatch',async()=>{
  const root=await mkdtemp(path.join(tmpdir(),'auth-generic-cli-'));
  try {
