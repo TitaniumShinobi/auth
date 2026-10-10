@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["auth"]
+}
+
+model User {
+  id             String    @id @db.Text
+  email          String    @unique @db.Citext
+  displayName    String    @map("display_name") @db.Text
+  passwordHash   String?   @map("password_hash") @db.Text
+  avatarUrl      String?   @map("avatar_url") @db.Text
+  authProvider   String    @map("auth_provider") @db.Text
+  lifeUserId     String?   @map("life_user_id") @db.Text
+  supabaseUserId String?   @map("supabase_user_id") @db.Text
+  createdAt      DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @map("updated_at") @db.Timestamptz(6)
+  lastLoginAt    DateTime? @map("last_login_at") @db.Timestamptz(6)
+
+  @@map("users")
+  @@schema("auth")
+}
+
+model ProviderAccount {
+  id                      String    @id @db.Text
+  userId                  String    @map("user_id") @db.Text
+  provider                String    @db.Text
+  providerUserId          String    @map("provider_user_id") @db.Text
+  email                   String?   @db.Citext
+  displayName             String?   @map("display_name") @db.Text
+  avatarUrl               String?   @map("avatar_url") @db.Text
+  profileJson             Json      @map("profile_json")
+  accessTokenEncrypted    String?   @map("access_token_encrypted") @db.Text
+  accessTokenScope        String?   @map("access_token_scope") @db.Text
+  connectedAt             DateTime? @map("connected_at") @db.Timestamptz(6)
+  connectionUpdatedAt     DateTime? @map("connection_updated_at") @db.Timestamptz(6)
+  createdAt               DateTime  @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([provider, providerUserId])
+  @@unique([userId, provider])
+  @@map("provider_accounts")
+  @@schema("auth")
+}
+
+model ConsentAcceptance {
+  id         String   @id @db.Text
+  userId     String   @map("user_id") @db.Text
+  appId      String   @map("app_id") @db.Text
+  consentKey String   @map("consent_key") @db.Text
+  docVersion String   @map("doc_version") @db.Text
+  label      String   @db.Text
+  url        String   @db.Text
+  acceptedAt DateTime @map("accepted_at") @db.Timestamptz(6)
+
+  @@unique([userId, appId, consentKey])
+  @@map("consent_acceptances")
+  @@schema("auth")
+}
+
+model AuthSession {
+  id                    String    @id @db.Uuid
+  userId                String    @map("user_id") @db.Text
+  appId                 String    @map("app_id") @db.Text
+  clientInstanceId      String?   @map("client_instance_id") @db.Text
+  currentRefreshTokenId String?   @map("current_refresh_token_id") @db.Uuid
+  rotationCounter       Int       @default(0) @map("rotation_counter")
+  createdAt             DateTime  @map("created_at") @db.Timestamptz(6)
+  authenticatedAt       DateTime  @map("authenticated_at") @db.Timestamptz(6)
+  lastSeenAt            DateTime  @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt             DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt             DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedReason         String?   @map("revoked_reason") @db.Text
+  ipHash                String?   @map("ip_hash") @db.Text
+  userAgentHash         String?   @map("user_agent_hash") @db.Text
+  metadata              Json      @default("{}")
+
+  @@index([userId, appId])
+  @@map("auth_sessions")
+  @@schema("auth")
+}
+
+model RefreshToken {
+  id                String    @id @db.Uuid
+  sessionId         String    @map("session_id") @db.Uuid
+  userId            String    @map("user_id") @db.Text
+  tokenJti          String    @unique @map("token_jti") @db.Text
+  tokenHash         String    @unique @map("token_hash") @db.Text
+  parentTokenId     String?   @map("parent_token_id") @db.Uuid
+  replacedByTokenId String?   @map("replaced_by_token_id") @db.Uuid
+  generation        Int
+  status            String    @db.Text
+  issuedAt          DateTime  @map("issued_at") @db.Timestamptz(6)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt            DateTime? @map("used_at") @db.Timestamptz(6)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(6)
+  reuseDetectedAt   DateTime? @map("reuse_detected_at") @db.Timestamptz(6)
+  ipHash            String?   @map("ip_hash") @db.Text
+  userAgentHash     String?   @map("user_agent_hash") @db.Text
+
+  @@unique([sessionId, generation])
+  @@map("refresh_tokens")
+  @@schema("auth")
+}
+
+model AuthSessionEvent {
+  id             String   @id @db.Uuid
+  sessionId      String?  @map("session_id") @db.Uuid
+  refreshTokenId String?  @map("refresh_token_id") @db.Uuid
+  userId         String?  @map("user_id") @db.Text
+  eventType      String   @map("event_type") @db.Text
+  occurredAt     DateTime @map("occurred_at") @db.Timestamptz(6)
+  requestId      String?  @map("request_id") @db.Text
+  ipHash         String?  @map("ip_hash") @db.Text
+  userAgentHash  String?  @map("user_agent_hash") @db.Text
+  metadata       Json     @default("{}")
+
+  @@index([sessionId, occurredAt])
+  @@index([userId, occurredAt])
+  @@map("auth_session_events")
+  @@schema("auth")
+}

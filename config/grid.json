@@ -1,0 +1,85 @@
+{
+  "app": {
+    "id": "grid",
+    "name": "Grid",
+    "brandTagline": "Your game and mod collection, in one grid."
+  },
+  "oauth": {
+    "envPrefix": "GRID"
+  },
+  "allowedOrigins": [
+    "https://grid.thewreck.org",
+    "http://127.0.0.1:51706"
+  ],
+  "redirects": {
+    "postLoginPath": "/return",
+    "postLogoutPath": "/"
+  },
+  "credentials": {
+    "enabled": true
+  },
+  "legalManifest": {
+    "status": "ready_for_publication",
+    "required": [
+      "Terms of Service",
+      "Privacy Notice",
+      "European Electronic Communications Code Disclosure"
+    ]
+  },
+  "docs": [
+    {
+      "product": "grid",
+      "docType": "terms",
+      "key": "grid_terms_v1",
+      "version": "f95742205defafbac03e2c183d7b7f2f2b6ac5b6f315936562193bdbe7e130f5",
+      "label": "GRID Terms of Service",
+      "url": "https://grid.thewreck.org/legal/terms",
+      "required": true
+    },
+    {
+      "product": "grid",
+      "docType": "privacy",
+      "key": "grid_privacy_v1",
+      "version": "662e95280750e8adaae1588b173d6cc0e043c23daf0e5010c61f513df653d787",
+      "label": "GRID Privacy Notice",
+      "url": "https://grid.thewreck.org/legal/privacy",
+      "required": true
+    },
+    {
+      "product": "grid",
+      "docType": "eeccd",
+      "key": "grid_eeccd_v1",
+      "version": "ca4c3af5b483664cc906a99effd399d6fe5ced808630997caf2d813e75b1673c",
+      "label": "GRID European Electronic Communications Code Disclosure",
+      "url": "https://grid.thewreck.org/legal/eeccd",
+      "required": true
+    }
+  ],
+  "turnstile": {
+    "required": false,
+    "enabled": false
+  },
+  "providers": [
+    { "provider": "microsoft", "label": "Continue with Microsoft", "enabled": true },
+    {
+      "provider": "github",
+      "label": "Continue with GitHub",
+      "enabled": true,
+      "callbackUrl": "https://grid.thewreck.org/api/auth/github/callback"
+    },
+    { "provider": "google", "label": "Continue with Google", "enabled": true }
+  ],
+  "publicClients": [
+    {
+      "clientId": "grid-windows",
+      "authorizationUiUrl": "https://grid.thewreck.org/signin",
+      "redirectUris": [],
+      "loopback": {
+        "hosts": ["127.0.0.1", "::1"],
+        "path": "/grid-natives-callback",
+        "allowDynamicPorts": true
+      },
+      "scopes": ["openid", "profile", "email"]
+    }
+  ]
+}

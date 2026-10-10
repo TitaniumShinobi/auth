@@ -1,0 +1,93 @@
+{
+  "app": {
+    "id": "thewreck_auth",
+    "name": "TheWreck Shared Auth",
+    "brandTagline": "Shared authentication for Chatty and VVAULT."
+  },
+  "oauth": {
+    "envPrefix": "THEWRECK_AUTH"
+  },
+  "allowedOrigins": [
+    "https://chatty.thewreck.org",
+    "https://vvault.thewreck.org"
+  ],
+  "redirects": {
+    "postLoginPath": "/",
+    "postLogoutPath": "/"
+  },
+  "credentials": {
+    "enabled": true
+  },
+  "docs": [
+    {
+      "product": "chatty",
+      "docType": "terms",
+      "key": "chatty:terms",
+      "version": "2026-03-13",
+      "label": "Chatty Terms of Service",
+      "url": "https://chatty.thewreck.org/legal/terms",
+      "required": true
+    },
+    {
+      "product": "chatty",
+      "docType": "privacy",
+      "key": "chatty:privacy",
+      "version": "2026-03-13",
+      "label": "Chatty Privacy Notice",
+      "url": "https://chatty.thewreck.org/legal/privacy",
+      "required": true
+    },
+    {
+      "product": "chatty",
+      "docType": "eeccd",
+      "key": "chatty:eeccd",
+      "version": "2026-03-13",
+      "label": "Chatty EECCD Disclosure",
+      "url": "https://chatty.thewreck.org/legal/eeccd",
+      "required": true
+    },
+    {
+      "product": "vvault",
+      "docType": "terms",
+      "key": "vvault:terms",
+      "version": "2026-03-13",
+      "label": "VVAULT Terms of Service",
+      "url": "https://vvault.thewreck.org/vvault-terms.html",
+      "required": true
+    },
+    {
+      "product": "vvault",
+      "docType": "privacy",
+      "key": "vvault:privacy",
+      "version": "2026-03-13",
+      "label": "VVAULT Privacy Notice",
+      "url": "https://vvault.thewreck.org/vvault-privacy.html",
+      "required": true
+    },
+    {
+      "product": "vvault",
+      "docType": "eeccd",
+      "key": "vvault:eeccd",
+      "version": "2026-03-13",
+      "label": "VVAULT EECCD Disclosure",
+      "url": "https://vvault.thewreck.org/vvault-eeccd.html",
+      "required": true
+    }
+  ],
+  "turnstile": {
+    "required": false,
+    "enabled": false
+  },
+  "providers": [
+    {
+      "provider": "google",
+      "label": "Continue with Google",
+      "enabled": true
+    },
+    {
+      "provider": "github",
+      "label": "Continue with GitHub",
+      "enabled": true
+    }
+  ]
+}

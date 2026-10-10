@@ -3,12 +3,8 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM"],
+    "lib": ["ES2022"],
     "types": ["node"],
-    "typeRoots": [
-      "../code/node_modules/@types",
-      "../node_modules/@types"
-    ],
     "rootDir": "src",
     "outDir": "dist",
     "strict": true,

@@ -1,0 +1,17 @@
+# REVIEW TEMPLATE ONLY. Replace @...@ values; do not install verbatim.
+[Unit]
+Description=AUTH authentication and capacity readiness
+OnFailure=@EXISTING_APPROVED_ALERT_UNIT@
+[Service]
+Type=oneshot
+User=@EXISTING_AUTHORIZED_MONITOR_USER@
+EnvironmentFile=@NONSECRET_RELIABILITY_CONFIGURATION_FILE@
+ExecStart=/usr/bin/node /opt/auth/scripts/auth-release-reliability.mjs monitor ${AUTH_RELIABILITY_MANIFEST} ${AUTH_RELIABILITY_ADAPTER} ${AUTH_RELIABILITY_ADAPTER_SHA256}
+TimeoutStartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=auth-reliability

@@ -88,7 +88,7 @@ test('prefers app-scoped OAuth env vars before generic shared vars', () => {
   }
 });
 
-test('falls back to existing callback base env vars when explicit callback url is unset', () => {
+test('rejects legacy callback bases outside the selected app origins', () => {
   const original = {
     CODE_GOOGLE_CLIENT_ID: process.env.CODE_GOOGLE_CLIENT_ID,
     CODE_GOOGLE_CLIENT_SECRET: process.env.CODE_GOOGLE_CLIENT_SECRET,
@@ -117,7 +117,7 @@ test('falls back to existing callback base env vars when explicit callback url i
     assert.deepEqual(resolveProviderCredentials('google', CONFIG), {
       clientId: 'code-client',
       clientSecret: 'code-secret',
-      callbackUrl: 'http://localhost:5173/api/auth/google/callback',
+      callbackUrl: '',
     });
   } finally {
     for (const [key, value] of Object.entries(original)) {
@@ -195,7 +195,7 @@ test('starts OAuth, completes callback, and sets a session cookie', async () => 
   }
 });
 
-test('starts OAuth with the configured callback base when legacy callback env vars are present', async () => {
+test('starts OAuth on the allowed request origin when legacy callback configuration is disallowed', async () => {
   const original = {
     CODE_GOOGLE_CLIENT_ID: process.env.CODE_GOOGLE_CLIENT_ID,
     CODE_GOOGLE_CLIENT_SECRET: process.env.CODE_GOOGLE_CLIENT_SECRET,
@@ -230,7 +230,7 @@ test('starts OAuth with the configured callback base when legacy callback env va
       const location = start.headers.get('location');
       assert.ok(location);
       const authUrl = new URL(location);
-      assert.equal(authUrl.searchParams.get('redirect_uri'), 'http://localhost:5173/api/auth/google/callback');
+      assert.equal(authUrl.searchParams.get('redirect_uri'), 'http://localhost:2048/api/auth/google/callback');
     });
   } finally {
     for (const [key, value] of Object.entries(original)) {
@@ -259,7 +259,8 @@ test('rejects OAuth callback with invalid state', async () => {
       headers: { Origin: 'http://localhost:2048' },
       redirect: 'manual',
     });
-    assert.equal(callback.status, 302);
-    assert.equal(callback.headers.get('location'), 'http://localhost:2048/?error=invalid_state');
+    assert.equal(callback.status, 400);
+    assert.equal(callback.headers.get('location'), null);
+    assert.equal((await callback.json() as {error:string}).error, 'invalid_state');
   });
 });

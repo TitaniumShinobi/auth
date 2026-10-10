@@ -1,0 +1,22 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';
+import {runGit} from './auth-git.mjs';import {installProductBundle,verifyProduct,hash} from './auth-product-contract.mjs';import {exportAuthorityBinding} from './auth-export-authority-binding.mjs';
+async function fixture(fn){const temp=await mkdtemp(path.join(tmpdir(),'auth-export-fast-'));const root=path.join(temp,'product');const {mkdir}=await import('node:fs/promises');await mkdir(root);try{
+ runGit(['init','-q'],{cwd:root});await writeFile(root+'/artifact','build');await writeFile(root+'/config','{}');runGit(['add','.'],{cwd:root});runGit(['-c','user.name=Fixture','-c','user.email=f@example.test','commit','-qm','fixture'],{cwd:root});
+ const observer=`import {readFileSync} from 'node:fs';if(process.env.TEST_OBSERVER_FORBIDDEN)throw Error('must not run');const binding=JSON.parse(readFileSync(0,'utf8'));console.log(JSON.stringify({binding,adapter:{schemaVersion:1,productId:binding.productId,revision:binding.revision,capabilities:{}}}));`;
+ await writeFile(temp+'/observer.mjs',observer);await installProductBundle(root,{authorized:true,productId:'example-desktop',adapterSource:temp+'/observer.mjs',inputs:{artifact:['artifact'],configuration:['config']}});
+ const report=await verifyProduct(root),bytes=JSON.stringify(report);await writeFile(temp+'/report.json',bytes);
+ const opts={repo:root,out:temp+'/binding.json',report:temp+'/report.json',reportSha256:hash(bytes),env:{EXAMPLE_DESKTOP_AUTH_AUTHORITY_ID:'https://identity.example.test',EXAMPLE_DESKTOP_AUTH_AUTHORITY_REVISION:'b'.repeat(40)}};
+ await fn({root,temp,report,opts});
+ }finally{delete process.env.TEST_OBSERVER_FORBIDDEN;await rm(temp,{recursive:true,force:true});}}
+test('fast export never calls observer or inventory; preserves exact reviewed revision',()=>fixture(async({root,opts,report})=>{
+ process.env.TEST_OBSERVER_FORBIDDEN='1';// An unsupported source object would fail inventory, but fast export has no source claim.
+ await writeFile(root+'/new-untracked-source','changed after observation');const before=await readFile(root+'/.git/index');const r=await exportAuthorityBinding(opts);assert.equal(r.sourceInventoryRefreshed,false);assert.match(r.note,/Unbuilt\/untracked source drift/);assert.equal(JSON.parse(await readFile(opts.out)).revision,report.binding.revision);assert.deepEqual(await readFile(root+'/.git/index'),before);
+}));
+test('stale reviewed report rejected',()=>fixture(async({opts,report})=>{await assert.rejects(exportAuthorityBinding({...opts,now:Date.parse(report.binding.observedAt)+86400001}),/STALE/);}));
+test('incorrect reviewed digest rejected',()=>fixture(async({opts})=>{await assert.rejects(exportAuthorityBinding({...opts,reportSha256:'f'.repeat(64)}),/DIGEST_MISMATCH/);}));
+for(const p of ['artifact','config'])test(p+' change rejects cached binding',()=>fixture(async({root,opts})=>{await writeFile(root+'/'+p,'changed');await assert.rejects(exportAuthorityBinding(opts),/CHANGED_REFRESH/);}));
+test('observer drift rejected before export',()=>fixture(async({root,opts})=>{await writeFile(root+'/.auth-kit/observe.mjs','throw Error()');await assert.rejects(exportAuthorityBinding(opts),/OBSERVER_DRIFT/);}));
+test('contract replacement rejected',()=>fixture(async({root,opts})=>{const p=root+'/.auth-kit/contract.json',c=JSON.parse(await readFile(p));c.profile='RELYING_PARTY_CLIENT';await writeFile(p,JSON.stringify(c));await assert.rejects(exportAuthorityBinding(opts),/REPORT_CONTRACT_MISMATCH/);}));
+test('changed Git HEAD rejected',()=>fixture(async({root,opts})=>{runGit(['-c','user.name=Fixture','-c','user.email=f@example.test','commit','--allow-empty','-qm','next'],{cwd:root});await assert.rejects(exportAuthorityBinding(opts),/HEAD_CHANGED/);}));
+test('explicit refresh runs current observation rather than silently falling back',()=>fixture(async({opts})=>{process.env.TEST_OBSERVER_FORBIDDEN='1';await assert.rejects(exportAuthorityBinding({...opts,refreshSource:true}),/PRODUCT_BINDING_MISMATCH/);}));
+test('refresh succeeds explicitly and exports fresh revision',()=>fixture(async({root,opts,report})=>{await writeFile(root+'/new-source','changed');const r=await exportAuthorityBinding({...opts,refreshSource:true});assert.equal(r.sourceInventoryRefreshed,true);assert.notEqual(r.reviewedRevision,report.binding.revision);}));

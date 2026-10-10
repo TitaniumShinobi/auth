@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {discoverGit,runGit} from './auth-git.mjs';
+const good={status:0,stdout:'git version 2.47.0.windows.1\n'};
+function fixture(env,found,platform='win32') {const calls=[];return {calls,options:{platform,env,stat:p=>({isFile:()=>found.includes(p)}),spawn:(p,args,options)=>{calls.push({p,args,options});return good;}}};}
+test('Windows Path casing and spaces resolve exact git.exe without shell',()=>{const f=fixture({Path:'C:\\Program Files\\Git\\cmd'},['C:\\Program Files\\Git\\cmd\\git.exe']);assert.equal(discoverGit(f.options),f.options.env.Path+'\\git.exe');assert.equal(f.calls[0].options.shell,false);});
+test('Windows standard install fallback works with missing PATH',()=>{const f=fixture({ProgramFiles:'C:\\Program Files'},['C:\\Program Files\\Git\\cmd\\git.exe']);assert.equal(discoverGit(f.options),'C:\\Program Files\\Git\\cmd\\git.exe');});
+test('explicit override wins and is not split at spaces',()=>{const f=fixture({AUTH_GIT_EXECUTABLE:'D:\\Tools Git\\git.exe',PATH:'C:\\Other'},['D:\\Tools Git\\git.exe','C:\\Other\\git.exe']);assert.equal(discoverGit(f.options),'D:\\Tools Git\\git.exe');});
+test('invalid explicit override cannot silently fall back',()=>{const f=fixture({AUTH_GIT_EXECUTABLE:'D:\\missing.exe',PATH:'C:\\Other'},['C:\\Other\\git.exe']);assert.throws(()=>discoverGit(f.options),{code:'GIT_OVERRIDE_UNUSABLE'});});
+test('relative override rejected',()=>assert.throws(()=>discoverGit({env:{AUTH_GIT_EXECUTABLE:'git.exe'},platform:'win32'}),{code:'GIT_OVERRIDE_INVALID'}));
+test('case insensitive local app installation',()=>{const f=fixture({localappdata:'D:\\User\\Local'},['D:\\User\\Local\\Programs\\Git\\cmd\\git.exe']);assert.equal(discoverGit(f.options),'D:\\User\\Local\\Programs\\Git\\cmd\\git.exe');});
+for(const platform of ['darwin','linux'])test(platform+' uses PATH order and ignores relative entries',()=>{const f=fixture({PATH:'.:/usr/local/bin:/usr/bin'},['/usr/local/bin/git','/usr/bin/git'],platform);assert.equal(discoverGit(f.options),'/usr/local/bin/git');});
+test('present but unlaunchable executable returns actionable diagnostic',()=>{const f=fixture({ProgramFiles:'C:\\Program Files'},['C:\\Program Files\\Git\\cmd\\git.exe']);f.options.spawn=()=>({error:{code:'ENOENT'}});assert.throws(()=>discoverGit(f.options),e=>e.code==='GIT_EXECUTABLE_UNAVAILABLE'&&e.diagnostic.includes('AUTH_GIT_EXECUTABLE'));});
+test('commands use resolved executable; arguments remain separate',()=>{const f=fixture({PATH:'C:\\Git'},['C:\\Git\\git.exe']);runGit(['rev-parse','HEAD'],{...f.options,cwd:'D:\\Product With Spaces'});assert.equal(f.calls[1].p,'C:\\Git\\git.exe');assert.deepEqual(f.calls[1].args,['rev-parse','HEAD']);assert.equal(f.calls[1].options.shell,false);});
+test('nonzero command failure does not expose raw output',()=>{const f=fixture({PATH:'/usr/bin'},['/usr/bin/git'],'linux');f.options.spawn=(p,args)=>args[0]==='--version'?good:{status:128,stderr:'sensitive output'};assert.throws(()=>runGit(['status'],f.options),e=>e.code==='GIT_COMMAND_FAILED'&&!e.message.includes('sensitive'));});

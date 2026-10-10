@@ -1,31 +1,54 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadSigningKeyFromKeychain } from './signingKeyEnv.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const DEFAULT_CONFIG_PATH = path.join(REPO_ROOT, 'auth', 'config', 'code.json');
+const AUTH_ROOT = path.resolve(__dirname, '..');
+const DEFAULT_CONFIG_PATH = path.join(AUTH_ROOT, 'config', 'example-app.json');
 
-function resolveActiveAppId() {
-  const configPath = process.env.AUTH_APP_CONFIG_PATH || DEFAULT_CONFIG_PATH;
-  return path.basename(configPath, path.extname(configPath)).trim().toLowerCase() || 'code';
+function resolveConfiguredPaths() {
+  const configuredPaths = (process.env.AUTH_APP_CONFIG_PATHS || '').trim();
+  if (configuredPaths) {
+    return configuredPaths
+      .split(path.delimiter)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return [process.env.AUTH_APP_CONFIG_PATH || DEFAULT_CONFIG_PATH];
+}
+
+function resolveActiveAppIds() {
+  const seen = new Set<string>();
+  const appIds: string[] = [];
+  for (const configPath of resolveConfiguredPaths()) {
+    const appId = path.basename(configPath, path.extname(configPath)).trim().toLowerCase() || 'example-app';
+    if (seen.has(appId)) continue;
+    seen.add(appId);
+    appIds.push(appId);
+  }
+  return appIds;
 }
 
 function envCandidatesForActiveApp() {
-  const activeAppId = resolveActiveAppId();
   const candidates = [
-    path.join(REPO_ROOT, 'auth', '.env.local'),
-    path.join(REPO_ROOT, 'auth', '.env'),
-    path.join(REPO_ROOT, activeAppId, '.env'),
+    path.join(AUTH_ROOT, '.env.local'),
+    path.join(AUTH_ROOT, '.env'),
   ];
-
-  if (activeAppId === 'chatty') {
-    candidates.push(path.join(REPO_ROOT, 'chatty', 'server', '.env'));
+  for (const activeAppId of resolveActiveAppIds()) {
+    candidates.push(path.join(AUTH_ROOT, `.env.${activeAppId}`));
   }
 
-  candidates.push(path.join(REPO_ROOT, '.env'));
-  return candidates;
+  const extraEnvFiles = (process.env.AUTH_ENV_FILES || '')
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => path.resolve(entry));
+  if (extraEnvFiles.length > 0) {
+    candidates.push(...extraEnvFiles);
+  }
+  return [...new Set(candidates)];
 }
 
 function normalizeEnvValue(rawValue: string) {
@@ -63,6 +86,7 @@ export function loadWorkspaceEnvFiles() {
   for (const candidate of envCandidatesForActiveApp()) {
     applyEnvFile(candidate);
   }
+  loadSigningKeyFromKeychain();
   loaded = true;
 }
 
