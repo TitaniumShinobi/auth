@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+
+import { SqliteStorageAdapter } from '../persistence/sqliteStorage.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const entrypoint = path.resolve(__dirname, '..', 'index.js');
@@ -60,6 +64,20 @@ async function stop(sample: StartupSample) {
   sample.child.kill('SIGTERM');
   await new Promise<void>((resolve) => sample.child.once('exit', () => resolve()));
 }
+
+test('SQLite startup creates a missing configured parent directory', async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'auth-missing-parent-'));
+  const parent = path.join(root, 'nested', 'data');
+  const database = path.join(parent, 'auth.sqlite');
+  try {
+    assert.equal(existsSync(parent), false);
+    await new SqliteStorageAdapter(database).initialize();
+    assert.equal(existsSync(parent), true);
+    assert.equal(existsSync(database), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('cold process startup benchmark reaches a healthy listener', async () => {
   const sample = await startMeasuredProcess();
