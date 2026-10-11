@@ -2,7 +2,7 @@
 
 This record distinguishes committed clean-checkout evidence from the hazardous working tree. It contains no credentials or runtime data.
 
-## Commit `992779a`
+## Final post-removal clean checkout
 
 A local `--no-local` clone of the commit was installed with `npm ci`. Because npm's script policy did not run Prisma's generator during install, the required sequence was explicit:
 
@@ -13,7 +13,7 @@ npm run build
 bin/node20 --test dist/test/auth.test.js dist/test/oauth.test.js dist/test/desktopCallbackFailure.test.js dist/test/authorizationCode.test.js dist/test/startup.test.js
 ```
 
-Results in a local `--no-local` clone before final product-specific source removal: locked install succeeded, Prisma Client 6.12.0 generated, TypeScript built, native durability passed 11/11, committed standards passed 59/59, and the command/wizard suite passed 144/144. Generation initially failed in the restricted sandbox because Prisma attempted to update the read-only user cache; with an isolated HOME it required the pinned engine download, and the narrowly unrestricted run succeeded. A final clean-clone receipt must supersede these repository-level counts after the removal commit; the generated-product evidence below remains valid because it exercises the product-neutral profile bytes.
+Results in a local `--no-local` clone: locked install succeeded; native durability passed 11/11; committed standards passed 50/50; CLI/wizard passed 8/8; and syntax/build validation passed. The clone was clean before generated dependency installation.
 
 The original 60/60 versus 59/59 discrepancy was traced to the uncommitted `MCP setup gaps produce a bounded agent integration handoff` case and paired catalog change. Those pre-existing overlapping bytes remain excluded from scoped commits. After removal of superseded product-specific suites, the final clean checkout has 17 catalog families and 50 standards tests; the hazardous working tree reports 18 families and 51. Both counts were run explicitly and are not conflated.
 
@@ -21,7 +21,7 @@ The original 60/60 versus 59/59 discrepancy was traced to the uncommitted `MCP s
 
 From the clean clone, `auth native plan` and authorized `apply` created ten ordinary product-owned files in an empty target: Prisma schema and migration, database preparation script, `src/index.ts`, profile acceptance test, locked package metadata, TypeScript configuration, and `auth-standards.json`. VERIFY passed and found no prohibited persistent artifacts.
 
-The source clone was then renamed out of its original location. Inside the generated product, independent `npm ci`, Prisma generation, migration deployment, TypeScript build, and both runtime tests passed (2/2). With the source still unavailable, the built product started on an isolated loopback port and returned `{"ok":true}` from `/health` and `{"ready":true}` from `/ready`; the process was then stopped. The target contained no `.auth-runtime`, `.auth-kit`, adapter, daemon, copied AUTH package, installed AUTH workflow, or lifecycle control plane.
+From that final clone, the wizard generated and verified an empty product. The source clone was then renamed out of its original location. Inside the generated product, independent `npm ci` audited 88 packages with zero vulnerabilities; Prisma Client 6.12.0 generation, migration deployment, TypeScript build, and both runtime tests passed (2/2). With the source still unavailable, the built product started on isolated loopback port 19113 and returned `{"ok":true}` from `/health` and `{"ready":true}` from `/ready`; the process was then stopped. The target contained no `.auth-runtime`, `.auth-kit`, adapter, daemon, copied AUTH package, installed AUTH workflow, or lifecycle control plane.
 
 ## Listener restriction classification
 

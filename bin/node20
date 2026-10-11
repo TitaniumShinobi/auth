@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-auth_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-runtime_helper="${VVAULT_NODE_RUNTIME_HELPER:-${auth_root}/../vvault/scripts/vvault-node-runtime.sh}"
-if [ -f "${runtime_helper}" ]; then
-  # shellcheck source=/dev/null
-  source "${runtime_helper}"
-  resolve_vvault_node_runtime
-  exec "${VVAULT_NODE_BIN}" "$@"
-fi
-
 node_bin="$(command -v node || true)"
 if [ -z "${node_bin}" ] || [ "$("${node_bin}" -p 'Number(process.versions.node.split(".")[0]) >= 20 ? "yes" : "no"')" != "yes" ]; then
-  echo "AUTH requires Node.js 20 or newer; set VVAULT_NODE_RUNTIME_HELPER or install Node.js." >&2
+  echo "AUTH requires Node.js 20 or newer." >&2
   exit 1
 fi
 exec "${node_bin}" "$@"

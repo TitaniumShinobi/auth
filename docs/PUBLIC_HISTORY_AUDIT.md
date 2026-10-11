@@ -1,6 +1,6 @@
 # Public branch and history audit
 
-Audit date: 2026-10-11. Scope: all 31 local and `origin/*` branch refs and all 46 commits reachable from those refs. The audit was read-only and did not print candidate secret values.
+Audit date: 2026-10-11. Scope: all 31 local and `origin/*` branch refs and all 70 commits reachable from those refs at the final cleanup audit. The audit was read-only and did not print candidate secret values.
 
 ## Checks
 
@@ -14,7 +14,7 @@ Audit date: 2026-10-11. Scope: all 31 local and `origin/*` branch refs and all 4
 1. No branch tip contains a committed credential `.env`, private-key file, certificate container, SQLite/database file, `data/` directory, or secret directory. `.env.example` is the expected placeholder-only exception.
 2. Two reachable historical compiled-test blobs contain private-key marker text at `dist/test/signingKeyEnv.test.js`: commits `80db0ccf17476897241ee7c5086a6762e640b2ed` and `c963a1951607a9af27bbc1eeffaf13ff38b8bf1a`. Both contain explicit fixture/test markers. They are test material, not evidence of a live private key. The former is reachable from `origin/release/grid-auth-github`; the latter is reachable from `origin/release/chatty-auth-production-handoff` and `origin/release/grid-auth-github`.
 3. Git object metadata includes historical paths `.auth-runtime/enrollment/transactions.sqlite` and `export/grid-consumer-v2/verify/results/live-smoke.sqlite`, but neither path exists in any current local or `origin/*` branch-tip tree. Their bytes were not printed or treated as safe. Before a public-history rewrite is considered, the owner must determine whether these are synthetic fixtures or sensitive data.
-4. Several non-default release branches retain superseded architectures and generated `dist/` artifacts. They are not release authorities. The default branch and future owner-approved tags are the only release candidates under the versioning policy.
+4. Several non-default release branches retain superseded architectures and generated `dist/` artifacts. They are not release authorities. The default branch removed product-specific configs, service source, generated evidence, installed-runtime machinery, and sibling-runtime wrapper assumptions; future owner-approved tags are the only release candidates under the versioning policy.
 5. No high-confidence AWS, GitHub-token, OpenAI-token, or non-fixture private-key signature was found in the reachable history scan.
 
 ## Disposition
