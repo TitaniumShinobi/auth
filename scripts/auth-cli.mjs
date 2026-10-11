@@ -29,7 +29,7 @@ const TARGET_APPS = new Set(['chatty', 'cleanhouse', 'code', 'vvault']);
 function usage(exitCode = 0) {
   const output = [
     'Usage:',
-    '  auth native <discover|plan|apply|verify|repair|migrate|recover> --repo <path> [--product <id>] [--receipt <path>] [--plan <path>] [--target-revision <commit>] [--dry-run] [--authorize]',
+    '  auth native <discover|plan|apply|verify|repair|migrate|recover> --repo <path> [--product <id>] [--receipt <path>] [--new-receipt <path>] [--plan <path>] [--target-revision <commit>] [--dry-run] [--authorize]',
     '  auth acceptance --adapter <json> (read-only configured-runtime and live-acceptance report)',
     '  auth conformance --adapter <json> --app <id> --client-id <registered client> --out <new json> [--authority http://localhost:1111]',
     '  auth wizard --adapter <json> [--baseline <json>] [--profile RELYING_PARTY_CLIENT|ASSERTION_INTEGRATION|AUTHORITY_RUNTIME|FULL_AUTHORITY_CONFORMANCE] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--authorize]',
@@ -663,8 +663,11 @@ try {
     } else if (operation === 'repair') {
       if (!receipt) throw new Error('native repair requires --receipt');
       result = await native.repairNativeTarget(path.resolve(root), path.resolve(receipt), { sourceRoot: repoRoot, authorized: argv.includes('--authorize') });
+    } else if (operation === 'migrate') {
+      const targetRevision = value('--target-revision'), newReceipt = value('--new-receipt');
+      if (!receipt || !targetRevision || !newReceipt) throw new Error('native migrate requires --receipt --target-revision --new-receipt');
+      result = await native.migrateNativeTarget(path.resolve(root), path.resolve(receipt), { sourceRoot: repoRoot, targetRevision, newReceiptPath: path.resolve(newReceipt), authorized: argv.includes('--authorize') });
     } else if (operation === 'recover') result = await native.recoverNativeTransactions(path.resolve(root));
-    else throw new Error('NATIVE_MIGRATION_TARGET_PROFILE_REQUIRED');
     console.log(JSON.stringify(result, null, 2));
     if (result.verification === 'FAIL') process.exitCode = 2;
   } else if (argv[0] === 'observer') {

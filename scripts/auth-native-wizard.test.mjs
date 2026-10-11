@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { applyNativePlan, discoverNativeTarget, planNativeTarget, recoverNativeTransactions, repairNativeTarget, verifyNativeReceipt } from './auth-native-wizard.mjs';
+import { applyNativePlan, discoverNativeTarget, migrateNativeTarget, planNativeTarget, recoverNativeTransactions, repairNativeTarget, verifyNativeReceipt } from './auth-native-wizard.mjs';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(sourceRoot, 'scripts', 'auth-cli.mjs');
@@ -147,4 +147,40 @@ test('abrupt REPAIR states recover to an unmixed old or repaired pair', async ()
       assert.deepEqual((await readdir(root)).filter(name => name.startsWith('.auth-native-transaction-')), []);
     } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
   }
+});
+
+test('explicit migration records lineage and crash recovery never leaves a mixed runtime/receipt pair', async () => {
+  const source = await mkdtemp(path.join(os.tmpdir(), 'auth-native-upgrade-source-'));
+  try {
+    assert.equal(spawnSync('git', ['clone', '--quiet', '--no-local', sourceRoot, source]).status, 0);
+    const base = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).stdout.trim();
+    const markerPath = path.join(source, 'src', 'auth', 'jwtTokens.ts');
+    await writeFile(markerPath, `${await readFile(markerPath, 'utf8')}\n// immutable upgrade fixture\n`);
+    assert.equal(spawnSync('git', ['-c', 'user.name=AUTH Test', '-c', 'user.email=auth-test@example.invalid', 'add', 'src/auth/jwtTokens.ts'], { cwd: source }).status, 0);
+    assert.equal(spawnSync('git', ['-c', 'user.name=AUTH Test', '-c', 'user.email=auth-test@example.invalid', 'commit', '--quiet', '-m', 'upgrade fixture'], { cwd: source }).status, 0);
+    const target = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).stdout.trim();
+    for (const point of [null, 'migrate-quarantined:src/auth/jwtTokens.ts', 'migrate-published:src/auth/jwtTokens.ts', 'migrate-verified', 'migrate-receipt-published', 'migrate-complete']) {
+      const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-upgrade-'));
+      const receipt = path.join(os.tmpdir(), `auth-native-upgrade-old-${Date.now()}-${Math.random()}.json`);
+      const nextReceipt = path.join(os.tmpdir(), `auth-native-upgrade-new-${Date.now()}-${Math.random()}.json`);
+      try {
+        const plan = await planNativeTarget(root, { sourceRoot: source, sourceRevision: base, productId: 'fixture', receiptPath: receipt });
+        await applyNativePlan(plan, { sourceRoot: source, authorized: true });
+        if (!point) {
+          const result = await migrateNativeTarget(root, receipt, { sourceRoot: source, targetRevision: target, newReceiptPath: nextReceipt, authorized: true });
+          assert.equal(result.state, 'COMPLETE'); assert.equal(result.from, base); assert.equal(result.to, target);
+          const next = JSON.parse(await readFile(nextReceipt, 'utf8')); assert.equal(next.priorReceiptDigest, JSON.parse(await readFile(receipt, 'utf8')).receiptDigest);
+          assert.equal((await verifyNativeReceipt(root, nextReceipt)).verification, 'PASS');
+        } else {
+          const program = `import {migrateNativeTarget} from ${JSON.stringify(new URL('./auth-native-wizard.mjs', import.meta.url).href)};await migrateNativeTarget(${JSON.stringify(root)},${JSON.stringify(receipt)},{sourceRoot:${JSON.stringify(source)},targetRevision:${JSON.stringify(target)},newReceiptPath:${JSON.stringify(nextReceipt)},authorized:true});`;
+          const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8', env: { ...process.env, AUTH_NATIVE_TEST_MODE: '1', AUTH_NATIVE_TEST_CRASH_AT: point } });
+          assert.equal(child.status, 86, point);
+          const recovery = await recoverNativeTransactions(root);
+          if (point === 'migrate-complete') { assert.equal(recovery.state, 'FINALIZED'); assert.equal((await verifyNativeReceipt(root, nextReceipt)).verification, 'PASS'); }
+          else { assert.equal(recovery.state, 'ROLLED_BACK'); assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS'); await absent(nextReceipt); }
+        }
+        assert.deepEqual((await readdir(root)).filter(name => name.startsWith('.auth-native-transaction-')), []);
+      } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); await rm(nextReceipt, { force: true }); }
+    }
+  } finally { await rm(source, { recursive: true, force: true }); }
 });

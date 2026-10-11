@@ -47,7 +47,7 @@ function validateProof(proof) {
 
 function validateNativeJournal(journal, id) {
   if (!journal || journal.schema !== 'life.auth.native-transaction/2' || journal.transactionId !== id || !Number.isInteger(journal.revision) || journal.revision < 1) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
-  if (!['APPLY', 'REPAIR'].includes(journal.operation) || !['STAGING', 'PUBLISHING', 'VERIFYING', 'COMPLETE', 'ROLLBACK_REFUSED'].includes(journal.state)) throw new Error('NATIVE_TRANSACTION_JOURNAL_UNSUPPORTED');
+  if (!['APPLY', 'REPAIR', 'MIGRATE'].includes(journal.operation) || !['STAGING', 'PUBLISHING', 'VERIFYING', 'ADVANCING', 'COMPLETE', 'ROLLBACK_REFUSED'].includes(journal.state)) throw new Error('NATIVE_TRANSACTION_JOURNAL_UNSUPPORTED');
   if (!Array.isArray(journal.entries) || new Set(journal.entries.map(item => item.path)).size !== journal.entries.length) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
   if (!Array.isArray(journal.parents || []) || new Set((journal.parents || []).map(item => item.path)).size !== (journal.parents || []).length) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
   for (const parent of journal.parents || []) {
@@ -355,6 +355,70 @@ export async function repairNativeTarget(targetRoot, receiptPath, { sourceRoot, 
   }
 }
 
+export async function migrateNativeTarget(targetRoot, receiptPath, { sourceRoot, targetRevision, newReceiptPath, authorized = false } = {}) {
+  if (!authorized) throw new Error('EXPLICIT_AUTHORIZATION_REQUIRED');
+  if (!targetRevision || !newReceiptPath) throw new Error('MIGRATION_TARGET_AND_RECEIPT_REQUIRED');
+  const root = await realpath(targetRoot);
+  const prior = JSON.parse(await readFile(receiptPath, 'utf8'));
+  if (prior.profile !== NATIVE_PROFILE || (await verifyNativeReceipt(root, receiptPath)).verification !== 'PASS') throw new Error('MIGRATION_REQUIRES_VALID_BASELINE');
+  const targetSource = authoritativeSource(sourceRoot, targetRevision);
+  if (targetSource.revision === prior.source.revision) throw new Error('MIGRATION_TARGET_MUST_DIFFER');
+  const priorPaths = Object.keys(prior.files).sort();
+  const targetSourcePaths = new Set([...profilePaths(sourceRoot, targetSource.revision), 'package-lock.json']);
+  const priorSourcePaths = new Set(priorPaths.filter(relative => relative.startsWith('src/') || relative === 'prisma/schema.prisma' || relative === 'package-lock.json'));
+  if (targetSourcePaths.size !== priorSourcePaths.size || [...targetSourcePaths].some(relative => !priorSourcePaths.has(relative))) throw new Error('MIGRATION_FILESET_CHANGE_REQUIRES_REVIEWED_PROFILE');
+  const targetFiles = {}, operations = [];
+  for (const relative of priorPaths) {
+    const current = await fileProof(inside(root, relative));
+    if (current.sha256 !== prior.files[relative]) throw new Error(`MIGRATION_PREIMAGE_MISMATCH:${relative}`);
+    const operation = { path: relative, ...(targetSourcePaths.has(relative) ? { sourcePath: relative } : { generated: true }) };
+    const bytes = await bytesFor({ ...prior, source: targetSource, productId: prior.productId }, operation, sourceRoot);
+    const targetDigest = sha(bytes); targetFiles[relative] = targetDigest;
+    operations.push({ ...operation, bytes, targetDigest, current });
+  }
+  const schemaOperation = operations.find(item => item.path === 'prisma/schema.prisma');
+  if (schemaOperation && schemaOperation.targetDigest !== prior.files['prisma/schema.prisma']) throw new Error('IRREVERSIBLE_SCHEMA_MIGRATION_REQUIRES_OWNER');
+  const changed = operations.filter(item => item.targetDigest !== prior.files[item.path]);
+  if (!changed.length) throw new Error('MIGRATION_TARGET_HAS_NO_RUNTIME_CHANGE');
+  const newReceiptTarget = path.resolve(newReceiptPath);
+  if (await exists(newReceiptTarget)) throw new Error('RECEIPT_DESTINATION_EXISTS');
+  const tx = randomUUID(), prefix = `${TX_PREFIX}${tx}`, stage = path.join(root, `${prefix}-stage`), quarantine = path.join(root, `${prefix}-quarantine`), journalPath = path.join(root, `${prefix}.json`);
+  const journal = { schema: 'life.auth.native-transaction/2', transactionId: tx, revision: 1, operation: 'MIGRATE', state: 'STAGING', receiptPath: path.resolve(receiptPath), receiptProof: await fileProof(path.resolve(receiptPath)), newReceiptPath: newReceiptTarget, profile: prior.profile, targetSource, entries: changed.map(item => ({ path: item.path, sha256: item.targetDigest, state: 'PLANNED' })), parents: [] };
+  await writeFile(journalPath, json(journal), { flag: 'wx', mode: 0o600 });
+  await mkdir(stage, { mode: 0o700 }); await writeFile(path.join(stage, '.transaction-id'), `${tx}\n`, { flag: 'wx' }); journal.stageProof = identity(await stat(stage));
+  await mkdir(quarantine, { mode: 0o700 }); await writeFile(path.join(quarantine, '.transaction-id'), `${tx}\n`, { flag: 'wx' }); journal.quarantineProof = identity(await stat(quarantine));
+  await persistNativeJournal(journalPath, journal);
+  try {
+    for (const operation of changed) {
+      const staged = inside(stage, operation.path); await mkdir(path.dirname(staged), { recursive: true }); await writeFile(staged, operation.bytes, { flag: 'wx' });
+      const item = journal.entries.find(entry => entry.path === operation.path); item.stagedProof = await fileProof(staged); item.state = 'STAGED'; await persistNativeJournal(journalPath, journal);
+    }
+    journal.state = 'PUBLISHING'; await persistNativeJournal(journalPath, journal);
+    for (const operation of changed) {
+      const item = journal.entries.find(entry => entry.path === operation.path), destination = inside(root, operation.path), old = inside(quarantine, operation.path), staged = inside(stage, operation.path);
+      item.preimageProof = await fileProof(destination); await persistNativeJournal(journalPath, journal);
+      await mkdir(path.dirname(old), { recursive: true }); await rename(destination, old); testCrash(`migrate-quarantined:${operation.path}`);
+      await rename(staged, destination); testCrash(`migrate-published:${operation.path}`);
+      item.publishedProof = await fileProof(destination); item.state = 'PUBLISHED'; await persistNativeJournal(journalPath, journal);
+    }
+    journal.state = 'VERIFYING'; await persistNativeJournal(journalPath, journal);
+    const targetReceipt = { schema: RECEIPT_SCHEMA, profile: prior.profile, productId: prior.productId, targetBinding: prior.targetBinding, source: targetSource, planDigest: digestJson({ operation: 'MIGRATE', from: prior.receiptDigest, to: targetSource }), files: targetFiles, capabilities: prior.capabilities, verification: 'PASS', priorReceiptDigest: prior.receiptDigest, limitations: prior.limitations };
+    targetReceipt.receiptDigest = digestJson(targetReceipt);
+    const verification = await verifyNativeTarget(root, targetReceipt);
+    if (verification.verification !== 'PASS') throw new Error('POST_MIGRATION_VERIFY_FAILED');
+    testCrash('migrate-verified');
+    const stagedReceipt = path.join(stage, '.next-receipt.json'); await writeFile(stagedReceipt, json(targetReceipt), { flag: 'wx', mode: 0o600 });
+    journal.newReceiptStagedProof = await fileProof(stagedReceipt); journal.state = 'ADVANCING'; await persistNativeJournal(journalPath, journal);
+    await mkdir(path.dirname(newReceiptTarget), { recursive: true }); await rename(stagedReceipt, newReceiptTarget); testCrash('migrate-receipt-published');
+    journal.newReceiptProof = await fileProof(newReceiptTarget); journal.state = 'COMPLETE'; await persistNativeJournal(journalPath, journal); testCrash('migrate-complete');
+    await rm(stage, { recursive: true }); await rm(quarantine, { recursive: true }); await rm(journalPath);
+    return { operation: 'MIGRATE', state: 'COMPLETE', from: prior.source.revision, to: targetSource.revision, changed: changed.map(item => item.path), receipt: newReceiptTarget, verification };
+  } catch (error) {
+    await recoverNativeTransactions(root);
+    throw error;
+  }
+}
+
 export async function recoverNativeTransactions(targetRoot) {
   const root = await realpath(targetRoot);
   const names = (await readdir(root)).filter(name => name.startsWith(TX_PREFIX));
@@ -371,10 +435,15 @@ export async function recoverNativeTransactions(targetRoot) {
   let journal;
   try { journal = validateNativeJournal(JSON.parse(await readFile(journalPath, 'utf8')), id); }
   catch { throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID'); }
-  if (journal.operation === 'REPAIR') {
+  if (journal.operation === 'REPAIR' || journal.operation === 'MIGRATE') {
     const quarantineRoot = path.join(root, `${TX_PREFIX}${id}-quarantine`);
     const rollback = journal.state !== 'COMPLETE';
     if (rollback) {
+      if (journal.operation === 'MIGRATE' && journal.newReceiptPath && await exists(journal.newReceiptPath)) {
+        const receiptProof = await fileProof(journal.newReceiptPath).catch(() => null);
+        if (!journal.newReceiptStagedProof || !receiptProof || !sameIdentity(receiptProof, journal.newReceiptStagedProof) || receiptProof.sha256 !== journal.newReceiptStagedProof.sha256) throw new Error('NATIVE_TRANSACTION_NEW_RECEIPT_AMBIGUOUS');
+        await rm(journal.newReceiptPath);
+      }
       for (const item of [...journal.entries].reverse()) {
         const destination = inside(root, item.path), old = inside(quarantineRoot, item.path);
         const current = await exists(destination);
@@ -398,8 +467,10 @@ export async function recoverNativeTransactions(targetRoot) {
         }
       }
     } else {
-      const receiptProof = await fileProof(journal.receiptPath).catch(() => null);
-      if (!receiptProof || !sameIdentity(receiptProof, journal.receiptProof) || receiptProof.sha256 !== journal.receiptProof.sha256) throw new Error('NATIVE_TRANSACTION_COMPLETE_AMBIGUOUS');
+      const finalReceiptPath = journal.operation === 'MIGRATE' ? journal.newReceiptPath : journal.receiptPath;
+      const expectedReceiptProof = journal.operation === 'MIGRATE' ? journal.newReceiptProof : journal.receiptProof;
+      const receiptProof = await fileProof(finalReceiptPath).catch(() => null);
+      if (!receiptProof || !sameIdentity(receiptProof, expectedReceiptProof) || receiptProof.sha256 !== expectedReceiptProof.sha256) throw new Error('NATIVE_TRANSACTION_COMPLETE_AMBIGUOUS');
       for (const item of journal.entries) {
         const proof = await fileProof(inside(root, item.path)).catch(() => null);
         if (!proof || !sameIdentity(proof, item.stagedProof) || proof.sha256 !== item.sha256) throw new Error(`NATIVE_TRANSACTION_COMPLETE_AMBIGUOUS:${item.path}`);
@@ -413,9 +484,11 @@ export async function recoverNativeTransactions(targetRoot) {
     }
   }
   if (journal.state === 'COMPLETE') {
-    if (!validateProof(journal.receiptProof)) throw new Error('NATIVE_TRANSACTION_COMPLETE_INVALID');
-    const receiptProof = await fileProof(journal.receiptPath).catch(() => null);
-    if (!receiptProof || !sameIdentity(receiptProof, journal.receiptProof) || receiptProof.sha256 !== journal.receiptProof.sha256) throw new Error('NATIVE_TRANSACTION_COMPLETE_AMBIGUOUS');
+    const finalReceiptPath = journal.operation === 'MIGRATE' ? journal.newReceiptPath : journal.receiptPath;
+    const expectedReceiptProof = journal.operation === 'MIGRATE' ? journal.newReceiptProof : journal.receiptProof;
+    if (!validateProof(expectedReceiptProof)) throw new Error('NATIVE_TRANSACTION_COMPLETE_INVALID');
+    const receiptProof = await fileProof(finalReceiptPath).catch(() => null);
+    if (!receiptProof || !sameIdentity(receiptProof, expectedReceiptProof) || receiptProof.sha256 !== expectedReceiptProof.sha256) throw new Error('NATIVE_TRANSACTION_COMPLETE_AMBIGUOUS');
     for (const item of journal.entries) {
       const proof = await fileProof(inside(root, item.path)).catch(() => null);
       if (!proof || !sameIdentity(proof, item.stagedProof) || proof.sha256 !== item.sha256) throw new Error(`NATIVE_TRANSACTION_COMPLETE_AMBIGUOUS:${item.path}`);
