@@ -105,20 +105,20 @@ app.post('/oauth/token', async (req, res) => {
     if (!code || code.usedAt || code.expiresAt <= new Date() || code.clientId !== req.body.client_id || code.redirectUri !== req.body.redirect_uri || expected !== code.codeChallenge) return res.status(400).json({ error: 'invalid_grant' });
     if ((await prisma.authorizationCode.updateMany({ where: { id: code.id, usedAt: null }, data: { usedAt: new Date() } })).count !== 1) return res.status(400).json({ error: 'invalid_grant' });
     const s = await createSession(code.userId), refresh = opaque(); await prisma.refreshToken.create({ data: { sessionId: s.id, digest: digest(refresh), generation: 0, expiresAt: s.expiresAt } });
-    return res.json({ access_token: await accessToken(code.userId, code.clientId, code.scope, s.id), token_type: 'Bearer', expires_in: 600, refresh_token: refresh, scope: code.scope });
+    return res.json({ access_token: await accessToken(code.userId, origin, code.scope, s.id), token_type: 'Bearer', expires_in: 600, refresh_token: refresh, scope: code.scope });
   }
   if (grant === 'refresh_token') {
     const presented = digest(String(req.body.refresh_token || '')), token = await prisma.refreshToken.findUnique({ where: { digest: presented }, include: { session: true } });
     if (!token || token.revokedAt || token.expiresAt <= new Date() || token.session.revokedAt) return res.status(400).json({ error: 'invalid_grant' });
     if (token.usedAt) { await prisma.refreshToken.updateMany({ where: { sessionId: token.sessionId }, data: { revokedAt: new Date() } }); await prisma.session.update({ where: { id: token.sessionId }, data: { revokedAt: new Date() } }); return res.status(400).json({ error: 'invalid_grant' }); }
     const next = opaque(); const won = await prisma.refreshToken.updateMany({ where: { id: token.id, usedAt: null }, data: { usedAt: new Date() } }); if (won.count !== 1) return res.status(400).json({ error: 'invalid_grant' }); await prisma.refreshToken.create({ data: { sessionId: token.sessionId, digest: digest(next), generation: token.generation + 1, expiresAt: token.expiresAt } });
-    return res.json({ access_token: await accessToken(token.session.userId, String(req.body.client_id || ''), String(req.body.scope || ''), token.sessionId), token_type: 'Bearer', expires_in: 600, refresh_token: next });
+    return res.json({ access_token: await accessToken(token.session.userId, origin, String(req.body.scope || ''), token.sessionId), token_type: 'Bearer', expires_in: 600, refresh_token: next });
   }
   res.status(400).json({ error: 'unsupported_grant_type' });
 });
 app.post('/oauth/revoke', async (req, res) => { const token = await prisma.refreshToken.findUnique({ where: { digest: digest(String(req.body.token || '')) } }); if (token) { await prisma.refreshToken.updateMany({ where: { sessionId: token.sessionId }, data: { revokedAt: new Date() } }); await prisma.session.update({ where: { id: token.sessionId }, data: { revokedAt: new Date() } }); } res.status(200).end(); });
 
-app.use('/mcp', async (req, res, next) => { const bearer = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1]; if (!bearer) return res.status(401).setHeader('WWW-Authenticate', `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`).json({ error: 'invalid_token' }); try { const verified = await jwtVerify(bearer, secret, { issuer: origin, audience: origin }); res.locals.auth = { subject: verified.payload.sub, scope: String(verified.payload.scope || '').split(' ') }; next(); } catch { res.status(401).json({ error: 'invalid_token' }); } });
+app.use('/mcp', async (req, res, next) => { const bearer = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1]; if (!bearer) return res.status(401).setHeader('WWW-Authenticate', `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`).json({ error: 'invalid_token' }); try { const verified = await jwtVerify(bearer, secret, { issuer: origin, audience: origin }); const scope = String(verified.payload.scope || '').split(' '); if (!verified.payload.sub || !scope.some(value => value.startsWith('mcp.'))) return res.status(403).json({ error: 'insufficient_scope' }); res.locals.auth = { subject: verified.payload.sub, scope }; next(); } catch { res.status(401).json({ error: 'invalid_token' }); } });
 app.post('/mcp', (_req, res) => res.status(501).json({ error: 'product_mcp_transport_not_configured' }));
 
 const server = app.listen(port, '127.0.0.1', () => console.log(`auth-ready:${port}`));
