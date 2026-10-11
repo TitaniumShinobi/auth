@@ -11,6 +11,7 @@ Implemented technical gates:
 - deterministic four-way execution handoffs and observer scaffolding;
 - default lifecycle tests and committed CI;
 - dependency-review and secret-scanning CI declarations;
+- a lockfile audit with zero known npm advisories after pinning the compatible Prisma 6.12.0 client/tooling pair and refreshing fixed transitive dependencies;
 - clean-clone acceptance procedure;
 - compatibility, versioning, migration, threat-model, support, contribution, and security documentation.
 
