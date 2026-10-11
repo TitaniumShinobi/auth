@@ -8,7 +8,7 @@ AUTH does not install or require `.auth-runtime`, `.auth-kit`, an AUTH-owned ada
 
 ## First native profile
 
-The first profile is TypeScript, Node.js, Express, and Prisma, derived from this repository's existing working implementation after capability and product-assumption review. Framework-neutral discovery, plan, receipt, security-profile, and plugin schemas remain separate from that profile. AUTH does not add another framework merely to demonstrate portability.
+The first profile is TypeScript, Node.js, Express, and Prisma. Repository review found that the historical runtime interleaves reusable authentication with LIFE/VVAULT/Chatty policy, so copying `src/` is not a viable public profile. The successor extracts the retained standards into the product-neutral source under `profiles/typescript-node-express-prisma/`; see [the profile contract](AUTH_TYPESCRIPT_NATIVE_PROFILE.md). Framework-neutral discovery, plan, receipt, security-profile, and plugin schemas remain separate from that profile. AUTH does not add another framework merely to demonstrate portability.
 
 ## Lifecycle
 

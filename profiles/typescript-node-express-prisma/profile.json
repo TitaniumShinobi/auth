@@ -1,0 +1,19 @@
+{
+  "schema": "life.auth.native-profile/1",
+  "id": "typescript-node-express-prisma/2",
+  "entrypoint": "src/index.ts",
+  "capabilities": [
+    "oauth-oidc",
+    "pkce",
+    "state-nonce-callback-validation",
+    "credentials",
+    "magic-email",
+    "sessions-secure-cookies",
+    "refresh-rotation-replay-protection",
+    "revocation-logout",
+    "prisma-persistence",
+    "native-cli-authorization",
+    "mcp-resource-server"
+  ],
+  "productOwned": true
+}

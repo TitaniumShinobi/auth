@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String?
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  sessions     Session[]
+  grants       AuthorizationCode[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refresh   RefreshToken[]
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  sessionId  String
+  digest     String   @unique
+  generation Int
+  expiresAt  DateTime
+  usedAt     DateTime?
+  revokedAt  DateTime?
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model AuthorizationCode {
+  id            String   @id @default(uuid())
+  digest        String   @unique
+  userId        String
+  clientId      String
+  redirectUri   String
+  codeChallenge String
+  nonce         String?
+  scope         String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MagicChallenge {
+  id        String   @id @default(uuid())
+  email     String
+  digest    String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+}
+
+model OAuthState {
+  id        String   @id @default(uuid())
+  digest    String   @unique
+  provider  String
+  nonce     String
+  returnTo  String
+  expiresAt DateTime
+  usedAt    DateTime?
+}
+
+model ProviderIdentity {
+  id        String   @id @default(uuid())
+  provider  String
+  subject   String
+  userId    String
+  createdAt DateTime @default(now())
+  @@unique([provider, subject])
+}

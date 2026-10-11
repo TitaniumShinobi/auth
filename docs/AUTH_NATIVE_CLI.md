@@ -6,7 +6,7 @@ The successor command group is `auth native <discover|plan|apply|verify|repair|m
 
 Legacy `setup`, `validate`, `runtime`, `product`, and `observer` commands now fail with `LEGACY_PERSISTENT_AUTH_COMMAND_REMOVED_USE_NATIVE_WORKFLOW`. Their implementation modules remain temporarily as reviewed source material until the successor reaches equivalent recovery coverage; they are not reachable production commands.
 
-The first profile is `typescript-node-express-prisma/1`. It writes ordinary product-owned source, Prisma schema, lockfile, `package.json`, `tsconfig.json`, and `auth-standards.json`. It never writes `.auth-runtime`, `.auth-kit`, an adapter, daemon, copied package, installed AUTH workflow, or lifecycle control plane.
+The first public profile is `typescript-node-express-prisma/2`. It maps the reviewed product-neutral profile source—not the repository's historical product-specific `src/`—into ordinary product-owned source, Prisma schema, lockfile, `package.json`, `tsconfig.json`, and `auth-standards.json`. It never writes `.auth-runtime`, `.auth-kit`, an adapter, daemon, copied package, installed AUTH workflow, or lifecycle control plane. See [the profile contract](AUTH_TYPESCRIPT_NATIVE_PROFILE.md).
 
 Existing conflicting authentication or product files stop planning with a review-required error. REPAIR is same-version only, restores only receipt-authenticated files from the exact immutable source revision, and verifies afterward.
 

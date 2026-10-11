@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-export const NATIVE_PROFILE = 'typescript-node-express-prisma/1';
+export const NATIVE_PROFILE = 'typescript-node-express-prisma/2';
 export const RECEIPT_SCHEMA = 'life.auth.receipt/1';
 const TX_PREFIX = '.auth-native-transaction-';
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
@@ -81,9 +81,12 @@ function authoritativeSource(sourceRoot, revision = 'HEAD') {
   return { mode: 'git-commit', revision: commit, tree: git(sourceRoot, ['rev-parse', `${commit}^{tree}`]).trim() };
 }
 
-function profilePaths(sourceRoot, revision) {
-  const listed = git(sourceRoot, ['ls-tree', '-r', '--name-only', revision, '--', 'src', 'prisma/schema.prisma']).split('\n').filter(Boolean);
-  return listed.filter(name => !name.startsWith('src/test/') && !name.endsWith('.test.ts') && !name.endsWith('.test.mjs')).sort();
+function profileEntries(sourceRoot, revision) {
+  const prefix = 'profiles/typescript-node-express-prisma/';
+  const listed = git(sourceRoot, ['ls-tree', '-r', '--name-only', revision, '--', prefix]).split('\n').filter(Boolean);
+  const entries = listed.filter(name => name !== `${prefix}profile.json`).map(sourcePath => ({ sourcePath, path: sourcePath.slice(prefix.length) })).sort((a, b) => a.path.localeCompare(b.path));
+  if (!entries.some(item => item.path === 'src/index.ts') || !entries.some(item => item.path === 'prisma/schema.prisma')) throw new Error('AUTHORITATIVE_NATIVE_PROFILE_INCOMPLETE');
+  return entries;
 }
 
 function profileBytes(sourceRoot, revision, sourcePath) {
@@ -144,18 +147,17 @@ export async function planNativeTarget(targetRoot, { sourceRoot, sourceRevision 
   if (discovery.prohibitedPersistentArtifacts.length) throw new Error('PERSISTENT_AUTH_ARTIFACT_MIGRATION_REQUIRED');
   if (!sourceRoot || !receiptPath) throw new Error('SOURCE_AND_RECEIPT_REQUIRED');
   const source = authoritativeSource(sourceRoot, sourceRevision);
-  const paths = profilePaths(sourceRoot, source.revision);
-  paths.push('package-lock.json');
+  const paths = [...profileEntries(sourceRoot, source.revision), { path: 'package-lock.json', sourcePath: 'package-lock.json' }];
   const operations = [];
-  for (const sourcePath of paths) {
+  for (const { path: targetPath, sourcePath } of paths) {
     const bytes = profileBytes(sourceRoot, source.revision, sourcePath);
-    const existing = await exists(path.join(discovery.targetRoot, sourcePath));
+    const existing = await exists(path.join(discovery.targetRoot, targetPath));
     if (existing) {
-      if (!existing.isFile()) throw new Error(`TARGET_PATH_COLLISION:${sourcePath}`);
-      const current = await readFile(path.join(discovery.targetRoot, sourcePath));
-      if (sha(current) !== sha(bytes)) throw new Error(`EXISTING_AUTH_REVIEW_REQUIRED:${sourcePath}`);
-      operations.push({ path: sourcePath, action: 'retain', owner: 'product', preimageSha256: sha(current), postimageSha256: sha(bytes), sourcePath });
-    } else operations.push({ path: sourcePath, action: 'create', owner: 'product', preimageSha256: null, postimageSha256: sha(bytes), sourcePath });
+      if (!existing.isFile()) throw new Error(`TARGET_PATH_COLLISION:${targetPath}`);
+      const current = await readFile(path.join(discovery.targetRoot, targetPath));
+      if (sha(current) !== sha(bytes)) throw new Error(`EXISTING_AUTH_REVIEW_REQUIRED:${targetPath}`);
+      operations.push({ path: targetPath, action: 'retain', owner: 'product', preimageSha256: sha(current), postimageSha256: sha(bytes), sourcePath });
+    } else operations.push({ path: targetPath, action: 'create', owner: 'product', preimageSha256: null, postimageSha256: sha(bytes), sourcePath });
   }
   for (const [relative, bytes] of [
     ['package.json', Buffer.from(json(generatedPackage(productId)))],
@@ -322,7 +324,8 @@ export async function repairNativeTarget(targetRoot, receiptPath, { sourceRoot, 
   await persistNativeJournal(journalPath, journal);
   try {
     for (const relative of repairable) {
-      const operation = { path: relative, ...(relative.startsWith('src/') || relative === 'prisma/schema.prisma' || relative === 'package-lock.json' ? { sourcePath: relative } : { generated: true }) };
+      const mapped = [...profileEntries(sourceRoot, receipt.source.revision), { path: 'package-lock.json', sourcePath: 'package-lock.json' }].find(item => item.path === relative);
+      const operation = { path: relative, ...(mapped ? { sourcePath: mapped.sourcePath } : { generated: true }) };
       const bytes = await bytesFor({ ...receipt, productId: receipt.productId }, operation, sourceRoot);
       if (sha(bytes) !== receipt.files[relative]) throw new Error(`REPAIR_SOURCE_DIGEST_MISMATCH:${relative}`);
       const staged = inside(stage, relative); await mkdir(path.dirname(staged), { recursive: true }); await writeFile(staged, bytes, { flag: 'wx' });
@@ -364,14 +367,16 @@ export async function migrateNativeTarget(targetRoot, receiptPath, { sourceRoot,
   const targetSource = authoritativeSource(sourceRoot, targetRevision);
   if (targetSource.revision === prior.source.revision) throw new Error('MIGRATION_TARGET_MUST_DIFFER');
   const priorPaths = Object.keys(prior.files).sort();
-  const targetSourcePaths = new Set([...profilePaths(sourceRoot, targetSource.revision), 'package-lock.json']);
+  const targetEntries = [...profileEntries(sourceRoot, targetSource.revision), { path: 'package-lock.json', sourcePath: 'package-lock.json' }];
+  const targetSourcePaths = new Set(targetEntries.map(item => item.path));
   const priorSourcePaths = new Set(priorPaths.filter(relative => relative.startsWith('src/') || relative === 'prisma/schema.prisma' || relative === 'package-lock.json'));
   if (targetSourcePaths.size !== priorSourcePaths.size || [...targetSourcePaths].some(relative => !priorSourcePaths.has(relative))) throw new Error('MIGRATION_FILESET_CHANGE_REQUIRES_REVIEWED_PROFILE');
   const targetFiles = {}, operations = [];
   for (const relative of priorPaths) {
     const current = await fileProof(inside(root, relative));
     if (current.sha256 !== prior.files[relative]) throw new Error(`MIGRATION_PREIMAGE_MISMATCH:${relative}`);
-    const operation = { path: relative, ...(targetSourcePaths.has(relative) ? { sourcePath: relative } : { generated: true }) };
+    const mapped = targetEntries.find(item => item.path === relative);
+    const operation = { path: relative, ...(mapped ? { sourcePath: mapped.sourcePath } : { generated: true }) };
     const bytes = await bytesFor({ ...prior, source: targetSource, productId: prior.productId }, operation, sourceRoot);
     const targetDigest = sha(bytes); targetFiles[relative] = targetDigest;
     operations.push({ ...operation, bytes, targetDigest, current });
