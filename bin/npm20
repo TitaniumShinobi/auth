@@ -3,11 +3,17 @@ set -euo pipefail
 
 auth_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 runtime_helper="${VVAULT_NODE_RUNTIME_HELPER:-${auth_root}/../vvault/scripts/vvault-node-runtime.sh}"
-if [ ! -f "${runtime_helper}" ]; then
-  echo "Auth requires the shared VVAULT Node runtime helper: ${runtime_helper}" >&2
+if [ -f "${runtime_helper}" ]; then
+  # shellcheck source=/dev/null
+  source "${runtime_helper}"
+  resolve_vvault_npm_runtime
+  exec "${VVAULT_NODE_BIN}" "${VVAULT_NPM_CLI}" "$@"
+fi
+
+node_bin="$(command -v node || true)"
+npm_bin="$(command -v npm || true)"
+if [ -z "${node_bin}" ] || [ -z "${npm_bin}" ] || [ "$("${node_bin}" -p 'Number(process.versions.node.split(".")[0]) >= 20 ? "yes" : "no"')" != "yes" ]; then
+  echo "AUTH requires Node.js 20+ and npm; set VVAULT_NODE_RUNTIME_HELPER or install them." >&2
   exit 1
 fi
-# shellcheck source=/dev/null
-source "${runtime_helper}"
-resolve_vvault_npm_runtime
-exec "${VVAULT_NODE_BIN}" "${VVAULT_NPM_CLI}" "$@"
+exec "${npm_bin}" "$@"

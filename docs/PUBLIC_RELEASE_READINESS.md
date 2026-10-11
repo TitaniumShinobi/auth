@@ -12,6 +12,7 @@ Implemented technical gates:
 - default lifecycle tests and committed CI;
 - dependency-review and secret-scanning CI declarations;
 - a lockfile audit with zero known npm advisories after pinning the compatible Prisma 6.12.0 client/tooling pair and refreshing fixed transitive dependencies;
+- repository wrappers that prefer the optional VVAULT runtime helper but fall back to a verified system Node.js 20+ and npm, so a public clone has no sibling-checkout dependency;
 - clean-clone acceptance procedure;
 - compatibility, versioning, migration, threat-model, support, contribution, and security documentation.
 
