@@ -1,12 +1,14 @@
 /** Transient target-native AUTH wizard. It leaves product source and an optional receipt, never an AUTH control plane. */
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export const NATIVE_PROFILE = 'typescript-node-express-prisma/1';
 export const RECEIPT_SCHEMA = 'life.auth.receipt/1';
 const TX_PREFIX = '.auth-native-transaction-';
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+const JOURNAL_PATTERN = new RegExp(`^${TX_PREFIX}(${UUID})\\.json$`, 'i');
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
@@ -18,6 +20,54 @@ const safeRelative = relative => {
   return relative;
 };
 const inside = (root, relative) => path.join(root, safeRelative(relative));
+const identity = entry => ({ dev: entry.dev, ino: entry.ino });
+const sameIdentity = (left, right) => Boolean(left && right && Number.isInteger(left.dev) && Number.isInteger(left.ino) && left.dev === right.dev && left.ino === right.ino);
+let atomicWriteCount = 0;
+const testCrash = point => {
+  if (process.env.AUTH_NATIVE_TEST_MODE === '1' && process.env.AUTH_NATIVE_TEST_CRASH_AT === point) process.exit(86);
+};
+
+async function atomicWriteJson(target, value) {
+  const temp = `${target}.tmp-${randomUUID()}`;
+  await writeFile(temp, json(value), { flag: 'wx', mode: 0o600 });
+  atomicWriteCount += 1;
+  testCrash(`journal-temp-written-${atomicWriteCount}`);
+  await rename(temp, target);
+}
+
+async function fileProof(target) {
+  const entry = await lstat(target);
+  if (entry.isSymbolicLink() || !entry.isFile()) throw new Error('NATIVE_TRANSACTION_OBJECT_UNSAFE');
+  return { ...identity(entry), sha256: sha(await readFile(target)) };
+}
+
+function validateProof(proof) {
+  return proof && Number.isInteger(proof.dev) && Number.isInteger(proof.ino) && /^[0-9a-f]{64}$/.test(proof.sha256 || '');
+}
+
+function validateNativeJournal(journal, id) {
+  if (!journal || journal.schema !== 'life.auth.native-transaction/2' || journal.transactionId !== id || !Number.isInteger(journal.revision) || journal.revision < 1) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
+  if (!['APPLY', 'REPAIR'].includes(journal.operation) || !['STAGING', 'PUBLISHING', 'VERIFYING', 'COMPLETE', 'ROLLBACK_REFUSED'].includes(journal.state)) throw new Error('NATIVE_TRANSACTION_JOURNAL_UNSUPPORTED');
+  if (!Array.isArray(journal.entries) || new Set(journal.entries.map(item => item.path)).size !== journal.entries.length) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
+  if (!Array.isArray(journal.parents || []) || new Set((journal.parents || []).map(item => item.path)).size !== (journal.parents || []).length) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
+  for (const parent of journal.parents || []) {
+    safeRelative(parent.path);
+    if (!Number.isInteger(parent.dev) || !Number.isInteger(parent.ino)) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
+  }
+  if (journal.stageProof && (!Number.isInteger(journal.stageProof.dev) || !Number.isInteger(journal.stageProof.ino))) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
+  for (const item of journal.entries) {
+    safeRelative(item.path);
+    if (!['PLANNED', 'STAGED', 'PUBLISHED'].includes(item.state) || !/^[0-9a-f]{64}$/.test(item.sha256 || '')) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
+    if (item.state !== 'PLANNED' && !validateProof(item.stagedProof)) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
+    if (item.publishedProof && !validateProof(item.publishedProof)) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
+  }
+  return journal;
+}
+
+async function persistNativeJournal(journalPath, journal) {
+  journal.revision += 1;
+  await atomicWriteJson(journalPath, journal);
+}
 
 function git(root, args, encoding = 'utf8') {
   try { return execFileSync('git', args, { cwd: root, encoding, maxBuffer: 32 * 1024 * 1024 }); }
@@ -129,13 +179,6 @@ async function bytesFor(plan, operation, sourceRoot) {
   throw new Error('PLAN_SOURCE_UNSUPPORTED');
 }
 
-async function persistJournal(journalPath, journal) {
-  journal.revision += 1;
-  const temp = `${journalPath}.tmp-${randomUUID()}`;
-  await writeFile(temp, json(journal), { flag: 'wx', mode: 0o600 });
-  await rename(temp, journalPath);
-}
-
 export async function applyNativePlan(plan, { sourceRoot, authorized = false, dryRun = false } = {}) {
   if (dryRun) return { operation: 'APPLY', state: 'DRY_RUN', planDigest: plan.planDigest, changed: [] };
   if (!authorized) throw new Error('EXPLICIT_AUTHORIZATION_REQUIRED');
@@ -144,11 +187,16 @@ export async function applyNativePlan(plan, { sourceRoot, authorized = false, dr
   if (root !== plan.targetRoot || plan.profile !== NATIVE_PROFILE || plan.schema !== 'life.auth.native-plan/1' || digestJson(planPayload) !== planDigest) throw new Error('NATIVE_PLAN_INVALID');
   const transactionId = randomUUID();
   const stageName = `${TX_PREFIX}${transactionId}`;
-  const stage = path.join(root, stageName);
+  const stage = path.join(root, `${stageName}-stage`);
   const journalPath = path.join(root, `${stageName}.json`);
-  const journal = { schema: 'life.auth.native-transaction/1', transactionId, revision: 0, state: 'STAGING', planDigest: plan.planDigest, created: [] };
-  await mkdir(stage, { mode: 0o700 });
+  const entries = plan.operations.filter(item => item.action === 'create').map(item => ({ path: item.path, sha256: item.postimageSha256, state: 'PLANNED' }));
+  const journal = { schema: 'life.auth.native-transaction/2', transactionId, revision: 1, operation: 'APPLY', state: 'STAGING', planDigest: plan.planDigest, receiptPath: path.resolve(plan.receiptPath), entries, parents: [] };
   await writeFile(journalPath, json(journal), { flag: 'wx', mode: 0o600 });
+  testCrash('apply-journal-created');
+  await mkdir(stage, { mode: 0o700 });
+  await writeFile(path.join(stage, '.transaction-id'), `${transactionId}\n`, { flag: 'wx', mode: 0o600 });
+  journal.stageProof = identity(await stat(stage));
+  await persistNativeJournal(journalPath, journal);
   try {
     for (const operation of plan.operations.filter(item => item.action === 'create')) {
       const bytes = await bytesFor(plan, operation, sourceRoot);
@@ -156,38 +204,75 @@ export async function applyNativePlan(plan, { sourceRoot, authorized = false, dr
       const staged = inside(stage, operation.path);
       await mkdir(path.dirname(staged), { recursive: true });
       await writeFile(staged, bytes, { flag: 'wx' });
+      const item = journal.entries.find(entry => entry.path === operation.path);
+      item.stagedProof = await fileProof(staged); item.state = 'STAGED';
+      await persistNativeJournal(journalPath, journal);
     }
-    journal.state = 'PUBLISHING'; await persistJournal(journalPath, journal);
+    const parentPaths = [...new Set(journal.entries.flatMap(item => {
+      const parts = item.path.split('/').slice(0, -1); const values = [];
+      for (let index = 1; index <= parts.length; index += 1) values.push(parts.slice(0, index).join('/'));
+      return values;
+    }))].sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+    for (const relative of parentPaths) {
+      const target = inside(root, relative);
+      if (await exists(target)) continue;
+      await mkdir(target);
+      const proof = identity(await stat(target)); journal.parents.push({ path: relative, ...proof });
+      await persistNativeJournal(journalPath, journal);
+    }
+    journal.state = 'PUBLISHING'; await persistNativeJournal(journalPath, journal);
     for (const operation of plan.operations.filter(item => item.action === 'create')) {
       const destination = inside(root, operation.path);
       if (await exists(destination)) throw new Error(`TARGET_CHANGED_AFTER_PLAN:${operation.path}`);
       await mkdir(path.dirname(destination), { recursive: true });
       await rename(inside(stage, operation.path), destination);
-      const entry = await stat(destination);
-      journal.created.push({ path: operation.path, dev: entry.dev, ino: entry.ino, sha256: sha(await readFile(destination)) });
-      await persistJournal(journalPath, journal);
+      testCrash(`apply-published:${operation.path}`);
+      const item = journal.entries.find(entry => entry.path === operation.path);
+      item.publishedProof = await fileProof(destination); item.state = 'PUBLISHED';
+      await persistNativeJournal(journalPath, journal);
     }
-    journal.state = 'COMPLETE'; await persistJournal(journalPath, journal);
+    journal.state = 'VERIFYING'; await persistNativeJournal(journalPath, journal);
     const verification = await verifyNativeTarget(root, plan);
     if (verification.verification !== 'PASS') throw new Error('POST_APPLY_VERIFY_FAILED');
+    testCrash('apply-verified');
     const receipt = { schema: RECEIPT_SCHEMA, profile: plan.profile, productId: plan.productId, targetBinding: verification.targetBinding, source: plan.source, planDigest: plan.planDigest, files: verification.files, capabilities: JSON.parse(await readFile(path.join(root, 'auth-standards.json'), 'utf8')).capabilities, verification: 'PASS', priorReceiptDigest: null, limitations: plan.limitations };
     receipt.receiptDigest = digestJson(receipt);
     const receiptTarget = path.resolve(plan.receiptPath);
     if (await exists(receiptTarget)) throw new Error('RECEIPT_DESTINATION_EXISTS');
     await mkdir(path.dirname(receiptTarget), { recursive: true });
     await writeFile(receiptTarget, json(receipt), { flag: 'wx', mode: 0o600 });
+    journal.receiptProof = await fileProof(receiptTarget);
+    journal.state = 'COMPLETE'; await persistNativeJournal(journalPath, journal);
+    testCrash('apply-complete');
     await rm(stage, { recursive: true }); await rm(journalPath);
     return { operation: 'APPLY', state: 'COMPLETE', receipt: receiptTarget, verification };
   } catch (error) {
-    for (const created of [...journal.created].reverse()) {
+    for (const created of [...journal.entries].reverse()) {
+      if (!created.stagedProof) continue;
       const destination = inside(root, created.path);
       const entry = await exists(destination);
       if (!entry || entry.isSymbolicLink() || !entry.isFile()) continue;
-      const current = await stat(destination);
-      if (current.dev !== created.dev || current.ino !== created.ino || sha(await readFile(destination)) !== created.sha256) throw new Error(`ROLLBACK_REFUSED:${created.path}`);
-      await rm(destination);
+      const proof = await fileProof(destination);
+      if (!sameIdentity(proof, created.stagedProof) || proof.sha256 !== created.sha256) { journal.state = 'ROLLBACK_REFUSED'; await persistNativeJournal(journalPath, journal).catch(() => {}); throw new Error(`ROLLBACK_REFUSED:${created.path}`); }
+      const quarantine = path.join(root, `${stageName}-quarantine-${journal.entries.indexOf(created)}`);
+      await rename(destination, quarantine);
+      const quarantined = await fileProof(quarantine);
+      if (!sameIdentity(quarantined, created.stagedProof) || quarantined.sha256 !== created.sha256) { await rename(quarantine, destination).catch(() => {}); throw new Error(`ROLLBACK_REFUSED:${created.path}`); }
+      await rm(quarantine);
     }
-    await rm(stage, { recursive: true, force: true }); await rm(journalPath, { force: true });
+    for (const parent of [...journal.parents].reverse()) {
+      const target = inside(root, parent.path), entry = await exists(target);
+      if (!entry) continue;
+      if (entry.isSymbolicLink() || !entry.isDirectory() || !sameIdentity(identity(await stat(target)), parent)) throw new Error(`ROLLBACK_REFUSED:${parent.path}`);
+      try { await rmdir(target); } catch (parentError) { if (parentError?.code !== 'ENOTEMPTY') throw parentError; }
+    }
+    const stageEntry = await exists(stage);
+    if (stageEntry) {
+      const marker = await readFile(path.join(stage, '.transaction-id'), 'utf8').then(value => value.trim()).catch(() => null);
+      if (stageEntry.isSymbolicLink() || !stageEntry.isDirectory() || !sameIdentity(identity(await stat(stage)), journal.stageProof) || marker !== transactionId) throw new Error('ROLLBACK_REFUSED:stage');
+      await rm(stage, { recursive: true });
+    }
+    await rm(journalPath, { force: true });
     throw error;
   }
 }
@@ -261,5 +346,68 @@ export async function recoverNativeTransactions(targetRoot) {
   const root = await realpath(targetRoot);
   const names = (await readdir(root)).filter(name => name.startsWith(TX_PREFIX));
   if (!names.length) return { operation: 'RECOVER', state: 'CLEAN' };
-  throw new Error('AMBIGUOUS_NATIVE_TRANSACTION_RESIDUE');
+  const journals = names.filter(name => JOURNAL_PATTERN.test(name));
+  if (journals.length !== 1) throw new Error('AMBIGUOUS_NATIVE_TRANSACTION_RESIDUE');
+  const journalName = journals[0];
+  const id = JOURNAL_PATTERN.exec(journalName)[1];
+  const allowedPrefixes = [`${TX_PREFIX}${id}.json`, `${TX_PREFIX}${id}-stage`, `${TX_PREFIX}${id}-quarantine-`];
+  if (names.some(name => !allowedPrefixes.some(prefix => name === prefix || name.startsWith(prefix)))) throw new Error('AMBIGUOUS_NATIVE_TRANSACTION_RESIDUE');
+  const journalPath = path.join(root, journalName);
+  const journalEntry = await lstat(journalPath);
+  if (journalEntry.isSymbolicLink() || !journalEntry.isFile()) throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID');
+  let journal;
+  try { journal = validateNativeJournal(JSON.parse(await readFile(journalPath, 'utf8')), id); }
+  catch { throw new Error('NATIVE_TRANSACTION_JOURNAL_INVALID'); }
+  if (journal.operation !== 'APPLY') throw new Error('NATIVE_TRANSACTION_RECOVERY_UNSUPPORTED');
+  if (journal.state === 'COMPLETE') {
+    if (!validateProof(journal.receiptProof)) throw new Error('NATIVE_TRANSACTION_COMPLETE_INVALID');
+    const receiptProof = await fileProof(journal.receiptPath).catch(() => null);
+    if (!receiptProof || !sameIdentity(receiptProof, journal.receiptProof) || receiptProof.sha256 !== journal.receiptProof.sha256) throw new Error('NATIVE_TRANSACTION_COMPLETE_AMBIGUOUS');
+    for (const item of journal.entries) {
+      const proof = await fileProof(inside(root, item.path)).catch(() => null);
+      if (!proof || !sameIdentity(proof, item.stagedProof) || proof.sha256 !== item.sha256) throw new Error(`NATIVE_TRANSACTION_COMPLETE_AMBIGUOUS:${item.path}`);
+    }
+  } else {
+    for (const item of [...journal.entries].reverse()) {
+      if (!item.stagedProof) continue;
+      const destination = inside(root, item.path);
+      const present = await exists(destination);
+      if (!present) continue;
+      const quarantine = path.join(root, `${TX_PREFIX}${id}-quarantine-${journal.entries.indexOf(item)}`);
+      if (await exists(quarantine)) throw new Error('NATIVE_TRANSACTION_QUARANTINE_AMBIGUOUS');
+      await rename(destination, quarantine);
+      const proof = await fileProof(quarantine).catch(() => null);
+      if (!proof || !sameIdentity(proof, item.stagedProof) || proof.sha256 !== item.sha256) {
+        await rename(quarantine, destination).catch(() => {});
+        throw new Error(`NATIVE_TRANSACTION_PUBLICATION_AMBIGUOUS:${item.path}`);
+      }
+      await rm(quarantine);
+    }
+    for (const parent of [...journal.parents].reverse()) {
+      const target = inside(root, parent.path), entry = await exists(target);
+      if (!entry) continue;
+      if (entry.isSymbolicLink() || !entry.isDirectory() || !sameIdentity(identity(await stat(target)), parent)) throw new Error(`NATIVE_TRANSACTION_PARENT_AMBIGUOUS:${parent.path}`);
+      try { await rmdir(target); } catch (error) { if (error?.code !== 'ENOTEMPTY') throw error; }
+    }
+  }
+  const stage = path.join(root, `${TX_PREFIX}${id}-stage`);
+  const stageEntry = await exists(stage);
+  if (stageEntry) {
+    const marker = await readFile(path.join(stage, '.transaction-id'), 'utf8').then(value => value.trim()).catch(() => null);
+    const stageIdentity = identity(await stat(stage));
+    if (stageEntry.isSymbolicLink() || !stageEntry.isDirectory() || !sameIdentity(stageIdentity, journal.stageProof) || marker !== id) throw new Error('NATIVE_TRANSACTION_STAGE_AMBIGUOUS');
+    await rm(stage, { recursive: true });
+  }
+  for (const name of await readdir(root)) {
+    if (!name.startsWith(`${journalName}.tmp-`)) continue;
+    const target = path.join(root, name), entry = await lstat(target);
+    if (entry.isSymbolicLink() || !entry.isFile()) throw new Error('NATIVE_TRANSACTION_TEMP_AMBIGUOUS');
+    let candidate;
+    try { candidate = validateNativeJournal(JSON.parse(await readFile(target, 'utf8')), id); }
+    catch { throw new Error('NATIVE_TRANSACTION_TEMP_AMBIGUOUS'); }
+    if (candidate.revision <= journal.revision) throw new Error('NATIVE_TRANSACTION_TEMP_AMBIGUOUS');
+    await rm(target);
+  }
+  await rm(journalPath);
+  return { operation: 'RECOVER', state: journal.state === 'COMPLETE' ? 'FINALIZED' : 'ROLLED_BACK', transactionId: id };
 }

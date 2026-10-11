@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { applyNativePlan, discoverNativeTarget, planNativeTarget, repairNativeTarget, verifyNativeReceipt } from './auth-native-wizard.mjs';
+import { applyNativePlan, discoverNativeTarget, planNativeTarget, recoverNativeTransactions, repairNativeTarget, verifyNativeReceipt } from './auth-native-wizard.mjs';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(sourceRoot, 'scripts', 'auth-cli.mjs');
@@ -81,5 +81,44 @@ test('VERIFY detects tamper and REPAIR restores authenticated bytes without chan
     assert.equal(repaired.versionChanged, false);
     assert.deepEqual(repaired.repaired, ['src/app.ts']);
     assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS');
+  } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
+});
+
+test('abrupt APPLY publication is recovered to the complete pre-run state', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-crash-'));
+  const receipt = path.join(os.tmpdir(), `auth-native-crash-receipt-${Date.now()}.json`);
+  try {
+    const program = `import {planNativeTarget,applyNativePlan} from ${JSON.stringify(new URL('./auth-native-wizard.mjs', import.meta.url).href)};const p=await planNativeTarget(${JSON.stringify(root)},{sourceRoot:${JSON.stringify(sourceRoot)},productId:'fixture',receiptPath:${JSON.stringify(receipt)}});await applyNativePlan(p,{sourceRoot:${JSON.stringify(sourceRoot)},authorized:true});`;
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8', env: { ...process.env, AUTH_NATIVE_TEST_MODE: '1', AUTH_NATIVE_TEST_CRASH_AT: 'apply-published:prisma/schema.prisma' } });
+    assert.equal(child.status, 86);
+    assert.equal((await recoverNativeTransactions(root)).state, 'ROLLED_BACK');
+    assert.deepEqual(await readdir(root), []);
+    await absent(receipt);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
+});
+
+test('recovery preserves an adversarial replacement and fails closed', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-adversary-'));
+  const receipt = path.join(os.tmpdir(), `auth-native-adversary-receipt-${Date.now()}.json`);
+  try {
+    const program = `import {planNativeTarget,applyNativePlan} from ${JSON.stringify(new URL('./auth-native-wizard.mjs', import.meta.url).href)};const p=await planNativeTarget(${JSON.stringify(root)},{sourceRoot:${JSON.stringify(sourceRoot)},productId:'fixture',receiptPath:${JSON.stringify(receipt)}});await applyNativePlan(p,{sourceRoot:${JSON.stringify(sourceRoot)},authorized:true});`;
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8', env: { ...process.env, AUTH_NATIVE_TEST_MODE: '1', AUTH_NATIVE_TEST_CRASH_AT: 'apply-published:prisma/schema.prisma' } });
+    assert.equal(child.status, 86);
+    const published = path.join(root, 'prisma', 'schema.prisma');
+    await rm(published); await writeFile(published, '// foreign replacement\n');
+    await assert.rejects(recoverNativeTransactions(root), /PUBLICATION_AMBIGUOUS/);
+    assert.equal(await readFile(published, 'utf8'), '// foreign replacement\n');
+  } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
+});
+
+test('journal temp interruption recovers from the prior valid revision', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-journal-crash-'));
+  const receipt = path.join(os.tmpdir(), `auth-native-journal-crash-receipt-${Date.now()}.json`);
+  try {
+    const program = `import {planNativeTarget,applyNativePlan} from ${JSON.stringify(new URL('./auth-native-wizard.mjs', import.meta.url).href)};const p=await planNativeTarget(${JSON.stringify(root)},{sourceRoot:${JSON.stringify(sourceRoot)},productId:'fixture',receiptPath:${JSON.stringify(receipt)}});await applyNativePlan(p,{sourceRoot:${JSON.stringify(sourceRoot)},authorized:true});`;
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8', env: { ...process.env, AUTH_NATIVE_TEST_MODE: '1', AUTH_NATIVE_TEST_CRASH_AT: 'journal-temp-written-2' } });
+    assert.equal(child.status, 86);
+    assert.equal((await recoverNativeTransactions(root)).state, 'ROLLED_BACK');
+    assert.deepEqual(await readdir(root), []);
   } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
 });

@@ -22,6 +22,10 @@ Classifications are `GREENFIELD`, `COMPATIBLE`, `DEGRADED`, `NONCONFORMANT`, `EX
 
 Every mutation requires an exact reviewed plan naming each path, ownership, preimage digest, intended postimage digest, provenance, rollback action, and post-change checks. Existing authentication is never overwritten heuristically. Publication uses target-filesystem staging, atomic rename where possible, an atomic revisioned journal, identity-and-digest verification, quarantine before deletion, and fail-closed recovery. Ambiguous or adversarial replacements are preserved.
 
+Native APPLY journals use `life.auth.native-transaction/2`. Before publication they durably record staged file device/inode identity and digest plus identities of product directories created by the transaction. Recovery accepts exactly one well-formed transaction, atomically quarantines each publication, and deletes it only when the recorded staging identity and digest still agree. Foreign replacements are restored to their destination and recovery fails closed. A COMPLETE transaction is finalized only when its receipt and every permanent file retain their recorded identity and digest. Journal revisions use adjacent temporary files and atomic rename; a valid interrupted temporary revision is reconciled against the prior valid journal. The controlled-process-termination guarantee does not claim power-loss durability.
+
+An interruption before the first journal can authenticate newly created staging state remains fail-closed evidence rather than deletion authority. Native REPAIR and MIGRATE do not yet use the version-2 recovery engine, so the public-production gate remains open.
+
 Dry-run, DISCOVER, CLASSIFY, PLAN, and VERIFY are read-only. REPAIR is version-preserving and limited to authenticated AUTH-created bytes or separately authorized product files. MIGRATE is explicit and reports irreversible boundaries before mutation.
 
 ## Capability continuity
