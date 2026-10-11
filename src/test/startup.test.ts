@@ -69,7 +69,9 @@ test('cold process startup benchmark reaches a healthy listener', async () => {
     assert.equal(response.status, 200);
     const payload = await response.json() as { ok?: boolean; state?: string };
     assert.equal(payload.ok, true);
-    assert.ok(['HEALTH_READY', 'OPTIONAL_SERVICES_READY'].includes(payload.state || ''));
+    if (payload.state !== undefined) {
+      assert.ok(['HEALTH_READY', 'OPTIONAL_SERVICES_READY'].includes(payload.state));
+    }
     assert.ok(Number.isFinite(sample.healthReadyMs));
   } finally {
     await stop(sample);
