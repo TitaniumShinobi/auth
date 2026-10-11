@@ -8,5 +8,7 @@ dist/
 
 .DS_Store
 *.log
+node_modules.corrupt-*/
+data/auth.db
 data/*.sqlite
 data/*.sqlite-*

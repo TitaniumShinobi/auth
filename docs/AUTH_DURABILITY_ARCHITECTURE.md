@@ -8,6 +8,8 @@ AUTH exists so authentication survives ordinary product development. AUTH owns t
 
 The consuming product owns the installed system, its secrets and runtime data, provider registrations, product-facing authentication UI, deployment, startup, monitoring, and runtime operation. AUTH is not a shared central runtime service, a thin adapter, or a permanent runtime dependency on the source `auth/` checkout.
 
+Wizard handoffs have exactly four execution classifications: `AUTO_REPAIR_AVAILABLE`, `AGENT_INTEGRATION_REQUIRED`, `EXTERNAL_ACTION_REQUIRED`, and `AUTH_DEVELOPMENT_REQUIRED`. Registered bounded ACT handlers are preferred. Agents may implement only product-specific configuration, UI, routing, deployment, and observation seams; credentials, provider registration, legal choices, irreversible migrations, and final release approval remain owner actions.
+
 ## Lifecycle
 
 `SETUP → ESTABLISH → normal development with VERIFY → bounded REPAIR when verification fails → authorized UPGRADE / ADVANCE for intentional change`
@@ -28,6 +30,8 @@ SETUP installs:
 - `.github/workflows/auth-product-contract.yml`: the deterministic verification gate.
 
 The installation is independent after publication. Runtime requests are served by the product-owned installed system; they do not call the setup wizard or source AUTH checkout.
+
+New installations include `.auth-kit/observe.mjs` and `.auth-kit/observer-input.json`: a deterministic, fail-closed read-only observer scaffold covering every catalog capability. It begins INDETERMINATE and cannot establish a baseline until product-owned evidence and runtime-independence observations are supplied. `auth observer scaffold` migrates only the exact legacy placeholder in an unestablished contract and refuses custom or established observers.
 
 Runtime source bytes come from one resolved Git commit, not from the source checkout's working tree. The installed manifest records the commit, tree, content digest, runtime inventory digest, lockfile digest, configuration digest, installer version, installation identifier, compatibility declaration, lifecycle state, and lineage fields. Dirty or untracked checkout bytes are therefore excluded rather than silently treated as a release. The installed runtime includes the committed `package-lock.json` and declares `npm ci` as its dependency installation path.
 

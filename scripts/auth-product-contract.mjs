@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { evaluateAdapter } from './auth-wizard.mjs';
 import { CAPABILITIES, CATALOG_VERSION, COMPATIBLE_BASELINE_VERSIONS } from './auth-capability-catalog.mjs';
 import { createBlockerHandoffs } from './auth-blocker-handoff.mjs';
+import { OBSERVER_INPUT, productObserverScaffold } from './auth-observer-scaffold.mjs';
 
 export const PRODUCT_CONTRACT = 'life.auth.product-contract/1';
 const kit = '.auth-kit';
@@ -17,7 +18,7 @@ const json = v => JSON.stringify(v, null, 2) + '\n';
 const readJson = async p => JSON.parse(await readFile(p, 'utf8'));
 const fail = code => { throw Object.assign(new Error(code), { code }); };
 const text = v => typeof v === 'string' && v.trim().length > 0;
-const runtimeFiles = ['auth-product-contract.mjs','auth-wizard.mjs','auth-capability-catalog.mjs','auth-lifecycle.mjs','auth-verification-profiles.mjs','auth-evidence-ownership.mjs','auth-conformance-binding.mjs','auth-blocker-handoff.mjs'];
+const runtimeFiles = ['auth-product-contract.mjs','auth-wizard.mjs','auth-capability-catalog.mjs','auth-lifecycle.mjs','auth-verification-profiles.mjs','auth-evidence-ownership.mjs','auth-conformance-binding.mjs','auth-blocker-handoff.mjs','auth-observer-scaffold.mjs'];
 const verifyScript = `import { runProductCli } from './runtime/auth-product-contract.mjs';\nawait runProductCli(process.argv.slice(2), new URL('../', import.meta.url));\n`;
 const gateScript = `// Invoke this from a required build/release check. No AUTH service needed.\nimport './verify.mjs';\n`;
 const workflow = `name: AUTH product contract\non: [pull_request, push, workflow_dispatch]\npermissions:\n  contents: read\njobs:\n  auth-product-contract:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 20\n      - run: node .auth-kit/ci.mjs verify\n`;
@@ -59,17 +60,19 @@ export async function installProductBundle(root, { authorized = false, productId
   // Preserve existing product workflows: installation never overwrites them.
   try { await lstat(path.join(root,'.github/workflows/auth-product-contract.yml')); fail('GATE_ALREADY_EXISTS'); } catch(e) { if(e.code !== 'ENOENT') throw e; }
   for(const dir of [kit,`${kit}/runtime`,`${kit}/baseline`,`${kit}/history`,`${kit}/reports`,'.github/workflows']) await checkDirectories(root,dir,true);
-  for(const p of [...artifactPaths,`${kit}/observe.mjs`,`${kit}/provenance.json`]) {
+  for(const p of [...artifactPaths,`${kit}/observe.mjs`,OBSERVER_INPUT,`${kit}/provenance.json`]) {
     try{await lstat(path.join(root,p));fail('INSTALL_FILE_COLLISION');}catch(e){if(e.code!=='ENOENT')throw e;}
   }
   await hashes(root,[...inputs.artifact,...inputs.configuration]);
   const installedWorkflow=gateSource?await readFile(gateSource,'utf8'):workflow;
   if(!installedWorkflow.includes('node .auth-kit/ci.mjs verify'))fail('CI_GATE_COMMAND_REQUIRED');
-  const observer = adapterSource ? await readFile(adapterSource,'utf8') : `// Replace before establishment with the product-owned, read-only evidence collector.\n// Read binding context JSON from stdin; emit {adapter, binding, independence}.\nthrow new Error('PRODUCT_OBSERVER_REQUIRED');\n`;
+  const scaffold = productObserverScaffold(productId);
+  const observer = adapterSource ? await readFile(adapterSource,'utf8') : scaffold.source;
   for (const dir of ['runtime','baseline','history','reports']) await mkdir(path.join(root,kit,dir),{recursive:true});
   await mkdir(path.join(root,'.github/workflows'),{recursive:true});
   for (const f of runtimeFiles) await writeFile(path.join(root,kit,'runtime',f),await readFile(new URL(f,import.meta.url)),{flag:'wx'});
   await writeFile(path.join(root,kit,'observe.mjs'),observer,{flag:'wx'});
+  if (!adapterSource) await writeFile(path.join(root,OBSERVER_INPUT),json(scaffold.input),{flag:'wx'});
   await writeFile(path.join(root,kit,'verify.mjs'),verifyScript,{flag:'wx'});
   await writeFile(path.join(root,kit,'ci.mjs'),gateScript,{flag:'wx'});
   await writeFile(path.join(root,'.github/workflows/auth-product-contract.yml'),installedWorkflow,{flag:'wx'});

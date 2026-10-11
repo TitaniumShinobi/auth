@@ -13,11 +13,13 @@ test('claimed pass cannot conceal failed capabilities', () => {
 test('known missing implementation routes product integration', () => {
   const [h] = createBlockerHandoffs(report([row({implementation:'NOT_ESTABLISHED'})]));
   assert.equal(h.nextOwner,'PRODUCT INTEGRATION'); assert.equal(h.reasonCode,'IMPLEMENTATION_NOT_ESTABLISHED');
+  assert.equal(h.executionClassification,'AGENT_INTEGRATION_REQUIRED');
   assert.equal(h.mdboLineage.status,'NOT_ESTABLISHED'); assert.equal(h.actAvailability,'UNAVAILABLE');
 });
 test('unknown capability stops for AUTH development even if operator says authorized', () => {
   const [h] = createBlockerHandoffs(report([],{unknownCapabilities:['future.identity']}),{authorization:true});
-  assert.equal(h.nextOwner,'AUTH DEVELOPMENT'); assert.equal(h.instruction,'STOP');
+  assert.equal(h.nextOwner,'AUTH DEVELOPMENT'); assert.match(h.instruction,/^STOP/);
+  assert.equal(h.executionClassification,'AUTH_DEVELOPMENT_REQUIRED');
 });
 test('unsupported reusable contract stops for AUTH development', () => {
   const [h] = createBlockerHandoffs(report(),{reusableContracts:{signin:false}});
@@ -26,11 +28,13 @@ test('unsupported reusable contract stops for AUTH development', () => {
 test('approval owner requires registered handler and explicitly missing authorization', () => {
   const [h] = createBlockerHandoffs(report(),{registeredCapabilities:['signin'],authorization:false});
   assert.equal(h.nextOwner,'OPERATOR APPROVAL'); assert.equal(h.authorizationRequired,true);
+  assert.equal(h.executionClassification,'EXTERNAL_ACTION_REQUIRED');
   assert.equal(createBlockerHandoffs(report(),{authorization:false})[0].nextOwner,'PRODUCT INTEGRATION');
 });
 test('only established external blockers route to external authority', () => {
   const context = {externalBlockers:{signin:{established:true,reason:'Provider configuration rejected',owner:'provider administrator'}}};
   assert.equal(createBlockerHandoffs(report(),context)[0].nextOwner,'EXTERNAL AUTHORITY');
+  assert.equal(createBlockerHandoffs(report(),context)[0].executionClassification,'EXTERNAL_ACTION_REQUIRED');
   assert.equal(createBlockerHandoffs(report(),{externalBlockers:{signin:{reason:'guess'}}})[0].nextOwner,'PRODUCT INTEGRATION');
 });
 test('regression remains a blocker even when row is now marked inapplicable', () => {
@@ -48,8 +52,10 @@ test('deterministic sorted output does not mutate report', () => {
   assert.deepEqual(createBlockerHandoffs(source),createBlockerHandoffs(source)); assert.equal(JSON.stringify(source),before);
   assert.deepEqual(createBlockerHandoffs(source).map(h=>h.capabilityId),['signin','signup']);
 });
-test('unexplained nonpass remains indeterminate', () => {
-  assert.equal(createBlockerHandoffs(report([]))[0].nextOwner,'INDETERMINATE');
+test('unexplained nonpass returns to AUTH development rather than inventing product work', () => {
+  const [handoff] = createBlockerHandoffs(report([]));
+  assert.equal(handoff.nextOwner,'AUTH DEVELOPMENT');
+  assert.equal(handoff.executionClassification,'AUTH_DEVELOPMENT_REQUIRED');
 });
 test('scoped ACT failure preserves actual capability without inferring handler support', () => {
   const [h] = createBlockerHandoffs({operator:'ACT',verification:'INDETERMINATE',error:'NO_SUPPORTED_REPAIR',productId:'fixture'}, {capabilityId:'signin'});
@@ -63,7 +69,7 @@ test('missing collection declarations belong to product integration', () => {
 });
 test('failed ACT with passing capabilities produces task blocker without fabricated capability', () => {
   const [h] = createBlockerHandoffs(report([row({verification:'PASS'})],{operator:'ACT',error:'REPAIR_FAILED'}));
-  assert.equal(h.capabilityId,null); assert.equal(h.reasonCode,'REPAIR_FAILED'); assert.equal(h.nextOwner,'INDETERMINATE');
+  assert.equal(h.capabilityId,null); assert.equal(h.reasonCode,'REPAIR_FAILED'); assert.equal(h.nextOwner,'AUTH DEVELOPMENT');
 });
 test('unscoped ACT authorization error requires approval without inventing available repair', () => {
   const [h] = createBlockerHandoffs({operator:'ACT',verification:'INDETERMINATE',error:'AUTHORIZATION_REQUIRED'}, {authorization:false});
@@ -80,16 +86,22 @@ test('ACT error priority is retained for both task-level and known capability ha
     for (const error of ['AUTHORIZATION_REQUIRED', 'NO_SUPPORTED_REPAIR']) {
       const [h] = createBlockerHandoffs({operator:'ACT',verification:'INDETERMINATE',error}, {capabilityId,authorization:false});
       assert.equal(h.reasonCode,error);
-      assert.equal(h.nextOwner,error === 'AUTHORIZATION_REQUIRED' ? 'OPERATOR APPROVAL' : 'PRODUCT INTEGRATION');
+      assert.equal(h.nextOwner,error === 'AUTHORIZATION_REQUIRED' ? 'OPERATOR APPROVAL' : capabilityId ? 'PRODUCT INTEGRATION' : 'AUTH DEVELOPMENT');
       assert.equal(h.authorizationRequired,true);
-      if (error === 'NO_SUPPORTED_REPAIR') assert.equal(h.instruction,'STOP');
+      if (error === 'NO_SUPPORTED_REPAIR') assert.equal(h.executionClassification, capabilityId ? 'AGENT_INTEGRATION_REQUIRED' : 'AUTH_DEVELOPMENT_REQUIRED');
       else assert.match(h.resumeCondition,/supported bounded repair handler is still required/);
     }
   }
 });
 test('unsupported contract ACT failure goes to AUTH development without overwriting failure reason', () => {
   const [h] = createBlockerHandoffs({operator:'ACT',verification:'INDETERMINATE',error:'NO_SUPPORTED_REPAIR'}, {capabilityId:'signin',reusableContracts:{signin:false},authorization:true});
-  assert.equal(h.nextOwner,'AUTH DEVELOPMENT'); assert.equal(h.reasonCode,'NO_SUPPORTED_REPAIR'); assert.equal(h.instruction,'STOP');
+  assert.equal(h.nextOwner,'AUTH DEVELOPMENT'); assert.equal(h.reasonCode,'NO_SUPPORTED_REPAIR'); assert.match(h.instruction,/^STOP/);
+});
+test('registered handler is the preferred automatic execution path once authorization is present', () => {
+  const [handoff] = createBlockerHandoffs(report(), { registeredCapabilities: ['signin'], authorization: true });
+  assert.equal(handoff.executionClassification, 'AUTO_REPAIR_AVAILABLE');
+  assert.equal(handoff.actAvailability, 'AVAILABLE');
+  assert.match(handoff.instruction, /registered bounded ACT handler/);
 });
 test('declaration blockers specify concrete expected evidence', () => {
   for (const id of ['counterparts:missing','emails:missing','welcome-emails:missing']) {
@@ -119,7 +131,7 @@ test('transferable handoff retains revision and required operating context witho
   assert.equal(handoff.target.revision, 'reviewed-revision');
   for (const key of ['wizard', 'version', 'catalogVersion', 'target', 'requestedOutcome', 'capabilityId', 'mdboLineage',
     'operator', 'applicability', 'implementation', 'verification', 'reasonCode', 'observedEvidence', 'expectedEvidence',
-    'capabilityGap', 'actAvailability', 'authorizationRequired', 'nextOwner', 'reproductionCommand', 'verificationCommand', 'resumeCondition']) {
+    'capabilityGap', 'executionClassification', 'actAvailability', 'authorizationRequired', 'nextOwner', 'reproductionCommand', 'verificationCommand', 'resumeCondition']) {
     assert.ok(Object.hasOwn(handoff, key), key);
   }
   assert.equal(handoff.mdboLineage.status, 'NOT_ESTABLISHED');

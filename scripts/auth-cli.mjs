@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { readFile, stat } from 'node:fs/promises';
+import { lstat, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), '..');
@@ -33,10 +33,11 @@ function usage(exitCode = 0) {
     '  auth conformance --adapter <json> --app <id> --client-id <registered client> --out <new json> [--authority http://localhost:1111]',
     '  auth product <verify|maintain|establish|advance|amend> [approval.json] --repo <path>',
     '  auth runtime <verify|establish|repair|upgrade|recover> --repo <path> --app <id> [--target-revision <commit>] [--authorize]',
+    '  auth observer scaffold --repo <path> --app <id> --authorize',
     '  auth setup --config <product-config.json> --inputs <input-paths.json> --adapter <observer.mjs> --repo <path> --app <id> --authorize',
     '  auth setup --repo <path> --app <chatty|cleanhouse|code|vvault> [--dry-run | --authorize]',
     '  auth validate --repo <path> --app <chatty|cleanhouse|code|vvault>',
-    '  auth wizard --adapter <json> [--baseline <json>] [--profile RELYING_PARTY_CLIENT|ASSERTION_INTEGRATION|AUTHORITY_RUNTIME|FULL_AUTHORITY_CONFORMANCE] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--authorize]',
+    '  auth wizard --adapter <json> [--baseline <json>] [--profile RELYING_PARTY_CLIENT|ASSERTION_INTEGRATION|AUTHORITY_RUNTIME|FULL_AUTHORITY_CONFORMANCE] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--authorize]',
     '              [--repo <path>] [--outcome <description>] [--capability <id>] [--authority-evidence <json> --authority-sha256 <trusted digest>]',
     '',
     'Rules:',
@@ -45,7 +46,7 @@ function usage(exitCode = 0) {
     '  never manually recreate, copy, adapt, or carry runtime/provider implementation.',
     '  validate is read-only and reports missing setup evidence.',
     '  wizard defaults to VERIFY and evaluates any product adapter without modifying it.',
-    '  setup writes require explicit --authorize; wizard ACT has no supported repair.',
+    '  setup writes require explicit --authorize; wizard ACT executes only an explicitly registered bounded handler.',
     '  secret values are never printed or read from .env files.',
   ].join('\n');
   (exitCode === 0 ? console.log : console.error)(output);
@@ -66,7 +67,7 @@ function parseArgs(argv) {
       args.authorize = true;
       continue;
     }
-    if (['--repo', '--app', '--adapter', '--baseline', '--operator', '--outcome', '--capability', '--authority-evidence', '--authority-sha256', '--authority', '--client-id', '--out', '--profile', '--config', '--inputs', '--gate'].includes(token)) {
+    if (['--repo', '--app', '--adapter', '--baseline', '--operator', '--outcome', '--capability', '--authority-evidence', '--authority-sha256', '--authority', '--client-id', '--out', '--profile', '--config', '--inputs', '--gate', '--act-module'].includes(token)) {
       const value = rest[index + 1];
       if (!value || value.startsWith('--')) usage(1);
       args[token.slice(2)] = value;
@@ -111,6 +112,19 @@ async function pathExists(targetPath) {
 
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, 'utf8'));
+}
+
+async function loadRegisteredActModule(modulePath, repository) {
+  if (!repository) throw new Error('Registered ACT requires --repo');
+  const root = await realpath(path.resolve(repository));
+  const requested = path.resolve(modulePath);
+  const resolved = await realpath(requested);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) throw new Error('ACT_MODULE_OUTSIDE_PRODUCT');
+  const entry = await lstat(requested);
+  if (entry.isSymbolicLink() || !entry.isFile() || path.extname(requested) !== '.mjs') throw new Error('ACT_MODULE_INVALID');
+  const registered = await import(`${pathToFileURL(resolved).href}?auth-act=${Date.now()}`);
+  if (!(registered.handlers instanceof Map) || typeof registered.observe !== 'function') throw new Error('ACT_MODULE_REGISTRY_INVALID');
+  return { handlers: registered.handlers, observe: registered.observe };
 }
 
 function envPrefix(config) {
@@ -498,12 +512,38 @@ async function wizard(args) {
     registeredCapabilities: [],
   };
   if (args.operator === 'ACT') {
+    if (args.authorize && args['act-module']) {
+      const adapter = await readJson(path.resolve(args.adapter));
+      const baseline = args.baseline ? await readJson(path.resolve(args.baseline)) : undefined;
+      const registered = await loadRegisteredActModule(args['act-module'], args.repo);
+      context.registeredCapabilities = [...registered.handlers.keys()].sort();
+      if (!args.capability || !registered.handlers.has(args.capability)) {
+        const report = { operator: 'ACT', verification: 'INDETERMINATE', state: 'BLOCKED', error: 'NO_SUPPORTED_REPAIR', capabilityId: args.capability || null, capabilities: [] };
+        report.blockerHandoffs = createBlockerHandoffs(report, context);
+        console.log(JSON.stringify(report, null, 2));
+        process.exitCode = 2;
+        return;
+      }
+      const { executeRepair } = await import('./auth-wizard.mjs');
+      const report = await executeRepair(adapter, {
+        capabilityId: args.capability,
+        authorization: { authorized: true, productId: adapter.productId, revision: adapter.revision, capabilityId: args.capability },
+        handlers: registered.handlers,
+        observe: registered.observe,
+        baseline,
+        verificationProfile: args.profile,
+      });
+      report.blockerHandoffs = createBlockerHandoffs(report, context);
+      console.log(JSON.stringify(report, null, 2));
+      if (report.verification !== 'PASS') process.exitCode = 2;
+      return;
+    }
     const report = {
       operator: 'ACT', verification: 'INDETERMINATE', state: 'BLOCKED',
       error: args.authorize ? 'NO_SUPPORTED_REPAIR' : 'AUTHORIZATION_REQUIRED',
       message: args.authorize
-        ? 'No generic repair is supported. Review the adapter evidence and repair plan before changing the product.'
-        : 'ACT requires explicit --authorize; no changes were made.',
+        ? 'ACT requires --act-module with a registered bounded handler; no changes were made.'
+        : 'ACT requires explicit --authorize and a registered bounded handler; no changes were made.',
       changedFiles: [],
       capabilityId: args.capability || null,
     };
@@ -605,7 +645,14 @@ async function validate(args) {
 
 try {
   const argv = process.argv.slice(2);
-  if (argv[0] === 'runtime') {
+  if (argv[0] === 'observer') {
+    const operation = argv[1];
+    const value = (flag) => { const index = argv.indexOf(flag); return index >= 0 ? argv[index + 1] : undefined; };
+    const root = value('--repo'), productId = value('--app');
+    if (operation !== 'scaffold' || !root || !productId) throw new Error('auth observer scaffold --repo <path> --app <id> --authorize');
+    const { installProductObserverScaffold } = await import('./auth-observer-scaffold.mjs');
+    console.log(JSON.stringify(await installProductObserverScaffold(path.resolve(root), productId, { authorized: argv.includes('--authorize') }), null, 2));
+  } else if (argv[0] === 'runtime') {
     const operation = argv[1];
     const value = (flag) => { const index = argv.indexOf(flag); return index >= 0 ? argv[index + 1] : undefined; };
     const root = value('--repo'), productId = value('--app'), targetRevision = value('--target-revision');

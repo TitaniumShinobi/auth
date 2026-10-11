@@ -10,9 +10,9 @@ Desktop integrators: [Reusable desktop OAuth handoff v1](docs/DESKTOP_OAUTH_HAND
 
 Start here: [Human operator guide](docs/AUTH_OPERATOR_HUMAN.md) · [Agent operator guide](docs/AUTH_OPERATOR_AGENT.md) · [Canonical wizard contract](docs/AUTH_WIZARD.md).
 
-`auth/` is the reusable authentication-system source and lifecycle authority. Authorized setup installs a complete product-local authentication runtime; consuming products run that system independently and keep their branded login, signup, consent, and account UI.
+Public project policy: [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Support](SUPPORT.md) · [Onboarding](docs/PUBLIC_ONBOARDING.md) · [Release readiness](docs/PUBLIC_RELEASE_READINESS.md) · [History audit](docs/PUBLIC_HISTORY_AUDIT.md) · [Human-action ledger](docs/HUMAN_ACTION_LEDGER.md).
 
-See [Enrollment handoff and admission v1](docs/ENROLLMENT_HANDOFF_V1.md) for the server contract and required VVAULT/product integration.
+`auth/` is the reusable authentication and authorization authority for source and lifecycle. Authorized setup installs a complete product-local authentication runtime; consuming products run that system independently and keep their branded login, signup, consent, and account UI.
 
 See [Registered-client resource authorization v1](docs/RESOURCE_AUTHORIZATION_V1.md) for the additive AUTH grant/status contract, controlled verification command, and VVAULT/GRID activation prerequisites. This source implementation is disabled until the authoritative resource adapter and workload trust are configured.
 
@@ -34,8 +34,11 @@ The setup operation is one-time. It copies the complete authorization protocol a
 
 ```sh
 bin/auth setup --repo ../chatty --app chatty --authorize
+bin/auth observer scaffold --repo ../chatty --app chatty --authorize
 bin/auth validate --repo ../chatty --app chatty
 ```
+
+New SETUP installations already contain the fail-closed observer scaffold. The observer command migrates only a legacy unestablished placeholder; it never replaces a custom collector or an established observer.
 
 See [Auth Setup CLI](docs/AUTH_SETUP_CLI.md).
 
@@ -301,8 +304,6 @@ Consuming app ports are origins and callback targets for that repo. They are not
 
 Temporary setup validation may load many configs at once, but final integration should leave each repo with independent port ownership. Keep a port reference so agents do not keep rediscovering or inventing these values:
 
-- [Local port reference](docs/LOCAL_PORTS.md)
-
 Use additional auth listening ports only when a repo intentionally owns its own auth process, side-by-side version testing is needed, or a separate deployment needs isolation. Do not turn this checkout into an unspoken central dependency.
 
 ## Auth Service and Session Contract
@@ -405,10 +406,6 @@ Reusable lifecycle verification: see [AUTH canonical wizard contract](docs/AUTH_
 
 Generate non-secret local authority conformance through `bin/auth conformance`:
 [operator instructions and proof limits](docs/AUTH_RELYING_PARTY_EVIDENCE.md#generate-evidence-for-the-existing-local-auth-deployment).
-
-Canonical-owner repair operators: [bounded assertion repair and protected datasource contract](docs/AUTH_ASSERTION_REPAIR.md).
-
-Desktop repair packaging: [1.1.0 integration instructions](docs/DESKTOP_HANDOFF_1_1_0.md).
 
 ## Durable product integration
 

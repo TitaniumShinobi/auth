@@ -22,7 +22,7 @@ node /path/to/auth/scripts/auth-cli.mjs setup --repo /path/to/product --app exam
 
 Use the actual packaged/build artifact and non-secret configuration or secret-reference/version manifest. Do not use secrets as observations or configuration evidence. The command never builds the product: the product pipeline must build first. No wildcards or executable commands are accepted in these paths. Symlinked bundle/files are rejected. Existing bundle/workflow files are not overwritten. Legacy `.auth-kit` config/report files may coexist, but a durable contract cannot be silently reinstalled/reset.
 
-When an adapter or input list is omitted, setup still creates an UNESTABLISHED bundle with an explicitly failing observer placeholder. It cannot PASS or establish until a product-owned collector and actual artifact/configuration inputs have been supplied. Edit the unestablished contract's input list and observer deliberately before establishment. After establishment, these are pinned; incompatible integration/tool changes require a supported future upgrade or AUTH DEVELOPMENT handoff, not deletion/reinstallation.
+When an adapter is omitted, setup creates an UNESTABLISHED bundle with a deterministic read-only observer and `.auth-kit/observer-input.json`. Every catalog capability begins INDETERMINATE. It cannot PASS or establish until fresh product-owned evidence, actual artifact/configuration inputs, and runtime-independence evidence are supplied. `auth observer scaffold` is the bounded migration path for the exact legacy placeholder. After establishment the observer is pinned; incompatible integration/tool changes require a supported upgrade or `AUTH_DEVELOPMENT_REQUIRED`, not deletion/reinstallation.
 
 Canonical installed files:
 

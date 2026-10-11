@@ -99,6 +99,12 @@ test('setup installs a complete product-local authentication runtime', async () 
     assert.equal(JSON.parse(await readFile(path.join(runtimeRoot, 'package.json'))).scripts.start, 'node dist/index.js');
     assert.ok(JSON.parse(await readFile(path.join(runtimeRoot, 'package-lock.json'))).lockfileVersion >= 2);
     assert.match(await readFile(path.join(directory, '.auth-kit', 'SYSTEM.md'), 'utf8'), /complete installed authentication system/);
+    const observerInput = JSON.parse(await readFile(path.join(directory, '.auth-kit', 'observer-input.json'), 'utf8'));
+    assert.equal(observerInput.adapter.productId, 'code');
+    assert.equal(Object.keys(observerInput.adapter.capabilities).length, CAPABILITIES.length);
+    const observer = run(['observer', 'scaffold', '--repo', directory, '--app', 'code', '--authorize']);
+    assert.equal(observer.status, 0, observer.stderr);
+    assert.equal(JSON.parse(observer.stdout).state, 'ALREADY_SCAFFOLDED_UNESTABLISHED');
     await assert.rejects(access(path.join(directory, '.auth-kit', 'ADAPTER.md')));
     const validation = run(['validate', '--repo', directory, '--app', 'code']);
     assert.match(validation.stdout, /PASS complete product-local auth runtime integrity/);
@@ -397,6 +403,30 @@ test('ACT handoff preserves a declared capability without supporting mutations',
     '--capability', 'invented-capability']);
   assert.equal(unknown.status, 1);
   assert.match(unknown.stderr, /Unknown capability/);
+});
+
+test('wizard ACT executes only a registered bounded handler and verifies fresh observations', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'auth-cli-act-'));
+  try {
+    const adapterPath = path.join(directory, 'adapter.json');
+    const adapter = { schemaVersion: 1, productId: 'fixture', revision: 'r1', capabilities: Object.fromEntries(CAPABILITIES.map(({ id }) => [id, {
+      applicability: 'FALSE', reason: 'Fixture excludes this capability', implementation: 'NOT_ESTABLISHED',
+    }])) };
+    const signin = CAPABILITIES.find(({ id }) => id === 'signin');
+    adapter.capabilities.signin = { applicability: 'TRUE', implementation: 'ESTABLISHED', evidence: ['fixture:before'], checks: Object.fromEntries(signin.checks.map((id) => [id, id !== 'explicit_entry'])) };
+    await writeFile(adapterPath, JSON.stringify(adapter));
+    const modulePath = path.join(directory, 'registered-act.mjs');
+    await writeFile(modulePath, `import {readFile,writeFile} from 'node:fs/promises';\nconst adapterPath=${JSON.stringify(adapterPath)};\nexport const handlers=new Map([['signin',async()=>{const a=JSON.parse(await readFile(adapterPath,'utf8'));a.capabilities.signin.checks.explicit_entry=true;a.capabilities.signin.evidence=['fixture:after'];await writeFile(adapterPath,JSON.stringify(a));}]]);\nexport const observe=async()=>JSON.parse(await readFile(adapterPath,'utf8'));\n`);
+    const blocked = run(['wizard', '--adapter', adapterPath, '--operator', 'ACT', '--capability', 'signin', '--repo', directory, '--act-module', modulePath]);
+    assert.equal(blocked.status, 2);
+    assert.equal(JSON.parse(blocked.stdout).blockerHandoffs[0].executionClassification, 'EXTERNAL_ACTION_REQUIRED');
+    const result = run(['wizard', '--adapter', adapterPath, '--operator', 'ACT', '--capability', 'signin', '--repo', directory, '--act-module', modulePath, '--authorize']);
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.verification, 'PASS');
+    assert.equal(report.verifiedAfterAct, true);
+    assert.deepEqual(report.blockerHandoffs, []);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test('wizard rejects unknown operators before reading adapters', () => {

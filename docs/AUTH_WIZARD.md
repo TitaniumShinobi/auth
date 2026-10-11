@@ -14,6 +14,13 @@ AUTH is a reusable, product-agnostic wizard for first-time setup, diagnosis, bou
 - **Normal use:** the product runs its installed authentication system and established durability contract directly. No wizard interaction, running wizard process, or recurring AUTH orchestration request may be required merely to continue functioning.
 - **Regression or change:** OBSERVE → ASSESS → DECIDE → explicitly authorized bounded ACT → fresh VERIFY. Diagnose the exact broken capability, apply the smallest supported repair, preserve existing applicable behavior, update the baseline only after verification, then exit again.
 
+Every non-pass blocker has exactly one machine-readable execution classification:
+
+- `AUTO_REPAIR_AVAILABLE`: a registered bounded handler exists; exact authorization and post-ACT VERIFY are mandatory.
+- `AGENT_INTEGRATION_REQUIRED`: an agent may change only product-specific configuration, UI, routing, deployment, or observation seams named by expected evidence.
+- `EXTERNAL_ACTION_REQUIRED`: credentials, provider registration, legal/consent choice, irreversible migration approval, or another external authority is required.
+- `AUTH_DEVELOPMENT_REQUIRED`: the reusable AUTH capability/contract is missing or ambiguous; product work stops rather than recreating auth architecture.
+
 “Verify once” means establish the initial baseline; it never permits skipping verification after a change. Drift checks may run through product tests/CI or an explicit diagnostic invocation without inserting the wizard into the runtime request path.
 
 ### Wizard versus authentication runtime
@@ -94,7 +101,7 @@ Existing source-kit setup remains available for its configured targets: `bin/aut
 
 The generic API `executeRepair(adapter, {capabilityId, authorization, handlers, observe, baseline})` in `scripts/auth-wizard.mjs` implements ACT. Authorization must be `{authorized:true, productId, revision, capabilityId}` matching the reviewed target. Applicability must be established TRUE. `handlers` is a product-owned Map from a catalog capability ID to a bounded repair function; `observe` collects the post-repair adapter evidence. Unsupported handlers fail before mutation. The handler receives only the authorized target coordinates. Verification runs after the attempt, retains baseline regression checks, and reports repair exceptions as FAIL. Observation errors throw rather than reporting success. No silent destructive repair or automatic rollback is performed.
 
-CLI `wizard --operator ACT` deliberately refuses mutation: JSON evidence cannot register executable repair code. Generic product integrations call the API with explicitly registered handlers. AUTH does not invent a fix for a missing policy or adapter.
+CLI `wizard --operator ACT` fails closed unless `--act-module` identifies a non-symlink `.mjs` registry inside the declared product repository, the exact capability is registered, and `--authorize` is present. The module exports a `handlers` Map and fresh `observe` function; the same `executeRepair` contract and post-change regression verification apply. JSON evidence alone never registers executable code. AUTH does not invent a fix for a missing policy or reusable capability.
 
 ## Optional counterpart enrollment
 

@@ -7,6 +7,13 @@ const object = value => value !== null && typeof value === 'object' && !Array.is
 const supportedDynamic = id => /^(counterpart:|email-message:).+/.test(id);
 const evidence = value => Array.isArray(value) ? value.filter(nonempty) : [];
 
+export const EXECUTION_CLASSIFICATIONS = Object.freeze([
+  'AUTO_REPAIR_AVAILABLE',
+  'AGENT_INTEGRATION_REQUIRED',
+  'EXTERNAL_ACTION_REQUIRED',
+  'AUTH_DEVELOPMENT_REQUIRED',
+]);
+
 function handlerAvailable(context, id) {
   const registered = context.registeredCapabilities ?? context.actCapabilities;
   if (registered instanceof Map) return typeof registered.get(id) === 'function';
@@ -42,7 +49,7 @@ export function createBlockerHandoffs(report, context = {}) {
     const contract = contracts.get(id);
     const known = Boolean(contract || (supportedDynamic(id) && row.id === id) || ['counterparts:missing', 'emails:missing', 'welcome-emails:missing'].includes(id));
     const contractUnavailable = context.reusableContracts?.[id] === false;
-    const authGap = !blocker.ambiguous && (!known || contractUnavailable);
+    const authGap = blocker.ambiguous || !known || contractUnavailable;
     const act = handlerAvailable(context, id);
     const authorized = context.authorization === true;
     const applicability = row.applicability || 'INDETERMINATE';
@@ -57,7 +64,10 @@ export function createBlockerHandoffs(report, context = {}) {
     } else if (actError === 'NO_SUPPORTED_REPAIR') {
       nextOwner = authGap ? 'AUTH DEVELOPMENT' : 'PRODUCT INTEGRATION'; reasonCode = actError;
     } else if (authGap) {
-      nextOwner = 'AUTH DEVELOPMENT'; reasonCode = known ? 'AUTH_CONTRACT_UNSUPPORTED' : 'UNKNOWN_CAPABILITY';
+      nextOwner = 'AUTH DEVELOPMENT';
+      reasonCode = blocker.ambiguous && nonempty(report?.error)
+        ? report.error
+        : known ? 'AUTH_CONTRACT_UNSUPPORTED' : 'UNKNOWN_CAPABILITY';
     } else if (missingAuthority) {
       nextOwner = 'EXTERNAL AUTHORITY'; reasonCode = 'AUTHORITY_EVIDENCE_INCOMPLETE';
     } else if (establishedExternal) {
@@ -77,6 +87,13 @@ export function createBlockerHandoffs(report, context = {}) {
     const reason = nonempty(row.reason) ? row.reason : reasonCode;
     const observed = new Map(observedChecks.map(check => [check.id, check.result]));
     const unmet = expected.filter(check => observed.get(check) !== 'PASS');
+    const executionClassification = (missingAuthority || establishedExternal || nextOwner === 'OPERATOR APPROVAL')
+      ? 'EXTERNAL_ACTION_REQUIRED'
+      : authGap
+        ? 'AUTH_DEVELOPMENT_REQUIRED'
+        : act && applicability === 'TRUE'
+          ? 'AUTO_REPAIR_AVAILABLE'
+          : 'AGENT_INTEGRATION_REQUIRED';
     return {
       wizard: 'AUTH', version: '1', catalogVersion: report?.catalogVersion || CATALOG_VERSION,
       target: { productId: report?.productId || null, ...(nonempty(report?.revision) ? { revision: report.revision } : {}), ...(nonempty(context.repository) ? { repository: context.repository } : {}) },
@@ -93,6 +110,7 @@ export function createBlockerHandoffs(report, context = {}) {
         ...(establishedExternal ? { externalBlocker: { reason: external.reason, ...(nonempty(external.owner) ? { owner: external.owner } : {}) } } : {}) },
       expectedEvidence: expected.map(check => ({ id: check, result: 'PASS', source: row.checks?.find(item => item.id === check)?.verification_owner || 'PRODUCT' })),
       capabilityGap: authGap ? 'AUTH_REUSABLE_CONTRACT_REQUIRED' : `${reason}${unmet.length ? `; failed or missing evidence: ${unmet.join(', ')}` : ''}`,
+      executionClassification,
       actAvailability: act ? 'AVAILABLE' : 'UNAVAILABLE', authorizationRequired: (act || report?.operator === 'ACT') && !authorized,
       authorizationState: context.authorization === true ? 'GRANTED' : context.authorization === false ? 'NOT_GRANTED' : 'NOT_ESTABLISHED',
       verificationRequired: true,
@@ -102,7 +120,10 @@ export function createBlockerHandoffs(report, context = {}) {
         : authGap && nextOwner !== 'OPERATOR APPROVAL' ? 'A reusable AUTH contract covers this capability and the wizard can evaluate it.'
         : nextOwner === 'OPERATOR APPROVAL' ? 'Explicit capability-scoped ACT authorization is supplied; a supported bounded repair handler is still required before ACT, followed by fresh verification.'
         : 'The declared blocker is resolved and a fresh report verifies the capability without regression.',
-      instruction: authGap || actError === 'NO_SUPPORTED_REPAIR' ? 'STOP' : 'Resolve the blocker with the named owner; rerun verification before resuming.',
+      instruction: executionClassification === 'AUTH_DEVELOPMENT_REQUIRED' ? 'STOP; return the missing reusable capability to AUTH development.'
+        : executionClassification === 'AUTO_REPAIR_AVAILABLE' ? 'Use the registered bounded ACT handler with exact authorization, then collect fresh observations and VERIFY.'
+        : executionClassification === 'EXTERNAL_ACTION_REQUIRED' ? 'Preserve state; obtain the named external or owner action, then collect fresh observations and VERIFY.'
+        : 'Implement only the product-specific UI, routing, configuration, deployment, or observation seam described by expectedEvidence; never recreate authentication runtime/provider/session architecture; then collect fresh observations and VERIFY.',
     };
   });
 }

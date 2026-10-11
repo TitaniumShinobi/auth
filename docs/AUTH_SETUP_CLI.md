@@ -40,6 +40,8 @@ The lifecycle kit includes:
 - `.auth-kit/auth.config.json`
 - `.auth-kit/SYSTEM.md`
 - `.auth-kit/reports/latest.md`
+- `.auth-kit/observe.mjs`
+- `.auth-kit/observer-input.json`
 
 The generated report records:
 
@@ -89,6 +91,8 @@ Runtime-only service code:
 AUTH SETUP installs the complete runtime into `.auth-runtime/auth-system/`. The installed runtime can install its own dependencies, build, and start without this source checkout. Agents must not manually recreate, copy, adapt, or carry runtime/provider implementation. Setup refuses to overwrite an existing runtime; upgrades and repairs require an explicit, reviewed lifecycle operation.
 
 Initial setup is one transaction: runtime, lifecycle bundle, setup configuration, system instructions, report, and verification workflow are staged before publication. Journal revisions use adjacent temporary files and atomic rename. Published artifacts record their post-publication filesystem identity and digest; rollback atomically quarantines each destination and deletes it only when both still agree. Staging cleanup independently requires the recorded device/inode, transaction marker, expected path, and matching journal.
+
+The installed observer scaffold is read-only and fail-closed. Product agents fill only evidence for product configuration, UI, routing, deployment, and observation seams. They must not add runtime/provider/session implementation. A legacy unestablished placeholder can be migrated with `bin/auth observer scaffold --repo <product> --app <id> --authorize`; custom or established observers are never overwritten.
 
 Before a new initial setup, the command processes at most one exact-prefix abandoned transaction journal. A validated incomplete transaction is rolled back; a validated COMPLETE transaction with intact permanent artifacts is finalized. Malformed, symlinked, path-escaping, duplicate, unsupported, or ambiguous recovery evidence is preserved and fails closed. Existing destinations fail preflight and are never overwritten.
 
