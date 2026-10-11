@@ -29,7 +29,7 @@ const TARGET_APPS = new Set(['chatty', 'cleanhouse', 'code', 'vvault']);
 function usage(exitCode = 0) {
   const output = [
     'Usage:',
-    '  auth native <discover|plan|apply|verify|repair|migrate|recover> --repo <path> [--product <id>] [--receipt <path>] [--new-receipt <path>] [--plan <path>] [--target-revision <commit>] [--dry-run] [--authorize]',
+    '  auth native <discover|assess|plan|align-plan|apply|verify|repair|migrate|recover> --repo <path> [--product <id>] [--receipt <path>] [--new-receipt <path>] [--plan <path>] [--target-revision <commit>] [--dry-run] [--authorize]',
     '  auth acceptance --adapter <json> (read-only configured-runtime and live-acceptance report)',
     '  auth conformance --adapter <json> --app <id> --client-id <registered client> --out <new json> [--authority http://localhost:1111]',
     '  auth wizard --adapter <json> [--baseline <json>] [--profile RELYING_PARTY_CLIENT|ASSERTION_INTEGRATION|AUTHORITY_RUNTIME|FULL_AUTHORITY_CONFORMANCE] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--authorize]',
@@ -645,13 +645,16 @@ try {
     const operation = argv[1];
     const value = flag => { const index = argv.indexOf(flag); return index >= 0 ? argv[index + 1] : undefined; };
     const root = value('--repo');
-    if (!root || !['discover', 'plan', 'apply', 'verify', 'repair', 'migrate', 'recover'].includes(operation)) throw new Error('auth native <discover|plan|apply|verify|repair|migrate|recover> --repo <path>');
+    if (!root || !['discover', 'assess', 'plan', 'align-plan', 'apply', 'verify', 'repair', 'migrate', 'recover'].includes(operation)) throw new Error('auth native <discover|assess|plan|align-plan|apply|verify|repair|migrate|recover> --repo <path>');
     const native = await import('./auth-native-wizard.mjs');
     const receipt = value('--receipt'), planPath = value('--plan'), productId = value('--product') || path.basename(path.resolve(root));
     let result;
     if (operation === 'discover') result = await native.discoverNativeTarget(path.resolve(root));
-    else if (operation === 'plan') {
-      result = await native.planNativeTarget(path.resolve(root), { sourceRoot: repoRoot, sourceRevision: value('--target-revision') || 'HEAD', productId, receiptPath: receipt });
+    else if (operation === 'assess') result = await native.assessNativeTarget(path.resolve(root));
+    else if (operation === 'plan' || operation === 'align-plan') {
+      result = operation === 'plan'
+        ? await native.planNativeTarget(path.resolve(root), { sourceRoot: repoRoot, sourceRevision: value('--target-revision') || 'HEAD', productId, receiptPath: receipt })
+        : await native.planNativeAlignment(path.resolve(root), { sourceRoot: repoRoot, sourceRevision: value('--target-revision') || 'HEAD', productId, receiptPath: receipt });
       if (planPath) await import('node:fs/promises').then(({ writeFile }) => writeFile(path.resolve(planPath), `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' }));
     } else if (operation === 'apply') {
       if (!planPath) throw new Error('native apply requires --plan');

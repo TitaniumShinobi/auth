@@ -104,10 +104,78 @@ async function targetInventory(root) {
 }
 
 async function boundedAuthEvidence(root) {
-  const candidates = ['src/auth', 'src/app.ts', 'src/routes/auth.ts', 'server/auth', 'app/api/auth', 'prisma/schema.prisma'];
+  const candidates = ['src/auth', 'src/index.ts', 'src/app.ts', 'src/routes/auth.ts', 'server/auth', 'app/api/auth', 'prisma/schema.prisma'];
   const found = [];
   for (const relative of candidates) if (await exists(path.join(root, relative))) found.push(relative);
   return found;
+}
+
+const ALIGNMENT_PROBES = Object.freeze([
+  ['oauth-oidc', /oauth|openid|authorization[_ -]?code/i, ['OAuth/OIDC authorization and callback evidence']],
+  ['pkce', /code_challenge|code_verifier|S256/, ['S256 PKCE evidence']],
+  ['state-nonce-callback-validation', /\bstate\b[\s\S]{0,300}\bnonce\b|nonce[\s\S]{0,300}state/i, ['state and nonce validation evidence']],
+  ['credentials', /passwordHash|scrypt|argon2|bcrypt/i, ['password hashing evidence']],
+  ['magic-email', /magic.{0,20}(link|email|challenge|token)/i, ['single-use expiring magic-email evidence']],
+  ['sessions-secure-cookies', /HttpOnly|httpOnly/i, ['HttpOnly session cookie evidence']],
+  ['refresh-rotation-replay-protection', /refresh.{0,80}(rotate|rotation|replay|usedAt)/i, ['refresh rotation and replay evidence']],
+  ['revocation-logout', /revoke|revocation|logout/i, ['server revocation and logout evidence']],
+  ['prisma-persistence', /PrismaClient|schema\.prisma|model\s+User/i, ['Prisma persistence evidence']],
+  ['native-cli-authorization', /127\.0\.0\.1|localhost|loopback|code_verifier/i, ['native/CLI redirect binding evidence']],
+  ['mcp-resource-server', /oauth-protected-resource|resource_metadata|\bmcp\b/i, ['MCP protected-resource authorization evidence']],
+]);
+
+async function boundedSourceEvidence(root) {
+  const roots = ['src', 'server', 'app/api/auth', 'prisma/schema.prisma'];
+  const files = [];
+  async function visit(relative, depth = 0) {
+    if (files.length >= 200 || depth > 6) return;
+    const target = path.join(root, relative), entry = await exists(target); if (!entry || entry.isSymbolicLink()) return;
+    if (entry.isFile()) { if (/\.(?:[cm]?[jt]s|tsx|prisma|json)$/.test(relative)) files.push(relative); return; }
+    if (!entry.isDirectory()) return;
+    for (const child of (await readdir(target, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) await visit(path.posix.join(relative, child.name), depth + 1);
+  }
+  for (const relative of roots) await visit(relative);
+  let total = 0; const evidence = [];
+  for (const relative of [...new Set(files)].sort()) {
+    const bytes = await readFile(path.join(root, relative)); total += bytes.length;
+    if (total > 2 * 1024 * 1024) throw new Error('AUTH_ASSESSMENT_SOURCE_BOUND_EXCEEDED');
+    evidence.push({ path: relative, text: bytes.toString('utf8') });
+  }
+  return evidence;
+}
+
+export async function assessNativeTarget(targetRoot) {
+  const discovery = await discoverNativeTarget(targetRoot);
+  if (!discovery.authEvidence.length) return { ...discovery, operation: 'ASSESS', classification: discovery.classification, capabilities: [], executionClassification: discovery.classification === 'GREENFIELD' ? 'AUTO_REPAIR_AVAILABLE' : 'AUTH_DEVELOPMENT_REQUIRED' };
+  const sources = await boundedSourceEvidence(discovery.targetRoot);
+  const capabilities = ALIGNMENT_PROBES.map(([id, pattern, expectedEvidence]) => {
+    const paths = sources.filter(item => pattern.test(item.text)).map(item => item.path);
+    return { id, status: paths.length ? 'OBSERVED_NOT_VERIFIED' : 'NOT_OBSERVED', evidence: paths, expectedEvidence };
+  });
+  const missing = capabilities.filter(item => item.status === 'NOT_OBSERVED');
+  const supportedStack = discovery.stack.runtime === 'node' && discovery.stack.language === 'typescript';
+  const classification = discovery.prohibitedPersistentArtifacts.length ? 'NONCONFORMANT' : !supportedStack ? 'MIGRATION_REQUIRED' : missing.length ? 'DEGRADED' : 'COMPATIBLE';
+  return { ...discovery, operation: 'ASSESS', classification, capabilities, executionClassification: classification === 'COMPATIBLE' ? 'AGENT_INTEGRATION_REQUIRED' : classification === 'DEGRADED' ? 'AGENT_INTEGRATION_REQUIRED' : 'AUTH_DEVELOPMENT_REQUIRED', limitation: 'Static observations are leads, not runtime conformance proof.' };
+}
+
+function alignmentTestSource() {
+  return `import test from 'node:test';\nimport assert from 'node:assert/strict';\nconst base=process.env.AUTH_BASE_URL;\ntest('declared auth runtime exposes health and OAuth metadata',async()=>{assert.ok(base,'AUTH_BASE_URL is required');const health=await fetch(new URL('/health',base));assert.equal(health.ok,true);const metadata=await fetch(new URL('/.well-known/oauth-authorization-server',base));assert.equal(metadata.ok,true);const body=await metadata.json();assert.equal(new URL(body.issuer).origin,new URL(base).origin);assert.ok(body.code_challenge_methods_supported?.includes('S256'));});\n`;
+}
+
+export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevision = 'HEAD', productId = 'product', receiptPath } = {}) {
+  if (!sourceRoot || !receiptPath) throw new Error('SOURCE_AND_RECEIPT_REQUIRED');
+  const assessment = await assessNativeTarget(targetRoot);
+  if (!assessment.authEvidence.length) throw new Error('ALIGNMENT_REQUIRES_EXISTING_AUTH');
+  if (assessment.prohibitedPersistentArtifacts.length) throw new Error('PERSISTENT_AUTH_ARTIFACT_MIGRATION_REQUIRED');
+  const contract = { schema: 'life.auth.existing-contract/1', profile: NATIVE_PROFILE, productId, classification: assessment.classification, capabilities: assessment.capabilities.map(item => item.id), observations: assessment.capabilities, verification: 'PENDING_RUNTIME_EVIDENCE' };
+  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(alignmentTestSource())]];
+  const operations = [];
+  for (const [relative, bytes] of generated) {
+    if (await exists(inside(assessment.targetRoot, relative))) throw new Error(`EXISTING_PRODUCT_FILE_REVIEW_REQUIRED:${relative}`);
+    operations.push({ path: relative, action: 'create', owner: 'product', preimageSha256: null, postimageSha256: sha(bytes), inlineBase64: bytes.toString('base64') });
+  }
+  const plan = { schema: 'life.auth.native-plan/1', profile: NATIVE_PROFILE, mode: 'align-existing', productId, targetRoot: assessment.targetRoot, receiptPath: path.resolve(receiptPath), source: authoritativeSource(sourceRoot, sourceRevision), classification: assessment.classification, assessmentDigest: digestJson(assessment), operations, limitations: ['static-assessment-not-runtime-proof','product-auth-source-not-overwritten','power-loss-fsync-not-proven'] };
+  plan.planDigest = digestJson(plan); return plan;
 }
 
 export async function discoverNativeTarget(targetRoot) {
@@ -176,6 +244,11 @@ export async function planNativeTarget(targetRoot, { sourceRoot, sourceRevision 
 }
 
 async function bytesFor(plan, operation, sourceRoot) {
+  if (operation.inlineBase64) {
+    const bytes = Buffer.from(operation.inlineBase64, 'base64');
+    if (bytes.length > 256 * 1024 || bytes.toString('base64') !== operation.inlineBase64) throw new Error('PLAN_INLINE_CONTENT_INVALID');
+    return bytes;
+  }
   if (operation.sourcePath) return profileBytes(sourceRoot, plan.source.revision, operation.sourcePath);
   if (operation.path === 'package.json') return Buffer.from(json(generatedPackage(plan.productId)));
   if (operation.path === 'tsconfig.json') return Buffer.from(json(generatedTsconfig));

@@ -1,0 +1,9 @@
+# Existing-auth assessment and alignment
+
+`auth native assess --repo <product>` is read-only. It inspects at most 200 authentication-relevant TypeScript, JavaScript, Prisma, and JSON files and at most 2 MiB of source. It reports product stack, bounded evidence paths, prohibited legacy artifacts, and each profile capability as `OBSERVED_NOT_VERIFIED` or `NOT_OBSERVED`. Static observation is never reported as conformance or runtime success.
+
+The deterministic classifications are `COMPATIBLE` when all profile signals are observed in a TypeScript/Node target, `DEGRADED` when signals are missing, `MIGRATION_REQUIRED` for a non-profile stack, and `NONCONFORMANT` for prohibited persistent AUTH artifacts. Compatible and degraded existing implementations return `AGENT_INTEGRATION_REQUIRED`: the product agent may supply the named evidence or make reviewed product-native changes, but must not recreate authentication architecture or overwrite source heuristically.
+
+`auth native align-plan --repo <product> --product <id> --receipt <path> --plan <path>` creates an exact plan containing only a product-owned `auth-standards.json` and `test/auth-contract.test.mjs`. Applying it uses the same crash-recoverable transaction as greenfield creation. Existing authentication source, configuration, secrets, persistence, identities, sessions, and data are byte-preserved. Existing files at either alignment destination stop planning for review.
+
+The generated test requires an operator-supplied `AUTH_BASE_URL` and observes health, OAuth metadata, issuer origin, and S256 PKCE declaration. Passing that test is one evidence input, not complete conformance. Missing reusable AUTH capability remains `AUTH_DEVELOPMENT_REQUIRED`; credentials, provider registration, consent, and irreversible migration remain external or owner actions.

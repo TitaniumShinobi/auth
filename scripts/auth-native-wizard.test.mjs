@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { applyNativePlan, discoverNativeTarget, migrateNativeTarget, planNativeTarget, recoverNativeTransactions, repairNativeTarget, verifyNativeReceipt } from './auth-native-wizard.mjs';
+import { applyNativePlan, assessNativeTarget, discoverNativeTarget, migrateNativeTarget, planNativeAlignment, planNativeTarget, recoverNativeTransactions, repairNativeTarget, verifyNativeReceipt } from './auth-native-wizard.mjs';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(sourceRoot, 'scripts', 'auth-cli.mjs');
@@ -66,6 +66,25 @@ test('existing conflicting product files fail planning without mutation', async 
     assert.deepEqual(await readFile(path.join(root, 'package.json')), before);
     await absent(receipt);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('existing authentication is assessed and aligned without overwriting product source', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-align-'));
+  const receipt = path.join(os.tmpdir(), `auth-native-align-receipt-${Date.now()}.json`);
+  try {
+    const { mkdir } = await import('node:fs/promises'); await mkdir(path.join(root, 'src', 'auth'), { recursive: true });
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'existing', type: 'module', dependencies: { express: '^5.1.0', '@prisma/client': '6.12.0' }, devDependencies: { typescript: '^6.0.3', prisma: '6.12.0' } }));
+    await writeFile(path.join(root, 'tsconfig.json'), '{}\n');
+    const existing = `// product owned\n// oauth authorization_code code_challenge code_verifier S256 state nonce passwordHash magic email HttpOnly refresh rotation replay revoke logout PrismaClient loopback oauth-protected-resource mcp\n`;
+    await writeFile(path.join(root, 'src', 'auth', 'existing.ts'), existing);
+    const assessment = await assessNativeTarget(root); assert.equal(assessment.classification, 'COMPATIBLE'); assert.equal(assessment.executionClassification, 'AGENT_INTEGRATION_REQUIRED');
+    const before = await readFile(path.join(root, 'src', 'auth', 'existing.ts'));
+    const plan = await planNativeAlignment(root, { sourceRoot, productId: 'existing', receiptPath: receipt });
+    assert.equal(plan.mode, 'align-existing'); assert.deepEqual(plan.operations.map(item => item.path), ['auth-standards.json', 'test/auth-contract.test.mjs']);
+    await applyNativePlan(plan, { sourceRoot, authorized: true });
+    assert.deepEqual(await readFile(path.join(root, 'src', 'auth', 'existing.ts')), before);
+    assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS');
+  } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
 });
 
 test('VERIFY detects tamper and REPAIR restores authenticated bytes without changing versions', async () => {

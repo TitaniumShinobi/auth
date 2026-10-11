@@ -18,6 +18,8 @@ Later operation is `DISCOVER -> VERIFY`. A same-version, provenance-authenticate
 
 Classifications are `GREENFIELD`, `COMPATIBLE`, `DEGRADED`, `NONCONFORMANT`, `EXTERNAL_ACTION_REQUIRED`, `MIGRATION_REQUIRED`, and `AUTH_DEVELOPMENT_REQUIRED`. Machine execution handoffs remain `AUTO_REPAIR_AVAILABLE`, `AGENT_INTEGRATION_REQUIRED`, `EXTERNAL_ACTION_REQUIRED`, and `AUTH_DEVELOPMENT_REQUIRED`.
 
+Existing authentication follows the [bounded assessment and alignment contract](AUTH_EXISTING_ALIGNMENT.md). Static source signals remain observations, never proof. AUTH can transactionally add product-owned standards and runtime-observation tests without replacing existing authentication files. Gaps yield deterministic expected evidence and an agent handoff limited to product-native UI, routing, configuration, deployment, observation, or an explicitly reviewed authentication change.
+
 ## Change safety
 
 Every mutation requires an exact reviewed plan naming each path, ownership, preimage digest, intended postimage digest, provenance, rollback action, and post-change checks. Existing authentication is never overwritten heuristically. Publication uses target-filesystem staging, atomic rename where possible, an atomic revisioned journal, identity-and-digest verification, quarantine before deletion, and fail-closed recovery. Ambiguous or adversarial replacements are preserved.

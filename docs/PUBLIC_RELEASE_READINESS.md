@@ -2,7 +2,7 @@
 
 Status: **not ready** under the [transient wizard architecture](AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md).
 
-The native workflow is executable; APPLY, same-version REPAIR, and explicit immutable-revision MIGRATE have controlled-process crash recovery with adversarial-replacement protection and old/new receipt lineage. Profile v2 now sources a product-neutral TypeScript/Node/Express/Prisma implementation rather than copying historical product-specific application code. Existing-auth alignment, complete profile capability acceptance, superseded-machinery removal, and public-artifact disposition remain open executable gates. Owner-controlled release actions cannot convert an unresolved executable gate into readiness.
+The native workflow is executable; APPLY, same-version REPAIR, and explicit immutable-revision MIGRATE have controlled-process crash recovery with adversarial-replacement protection and old/new receipt lineage. Profile v2 sources a product-neutral TypeScript/Node/Express/Prisma implementation rather than copying historical product-specific application code. Existing-auth assessment and non-overwriting standards/test alignment are implemented. Complete profile capability acceptance, superseded-machinery removal, and public-artifact disposition remain open executable gates. Owner-controlled release actions cannot convert an unresolved executable gate into readiness.
 
 The earlier conditionally-ready assessment below applies only to the superseded installed-runtime campaign and is retained temporarily as audit evidence.
 
