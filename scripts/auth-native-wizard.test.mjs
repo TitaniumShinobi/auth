@@ -39,7 +39,7 @@ test('plan and dry-run are read-only; apply creates product-native source with n
   try {
     const plan = await planNativeTarget(root, { sourceRoot, productId: 'fixture-product', receiptPath: receipt });
     assert.equal(plan.classification, 'GREENFIELD');
-    assert.ok(plan.operations.some(item => item.path === 'src/app.ts'));
+    assert.ok(plan.operations.some(item => item.path === 'src/index.ts'));
     assert.ok(plan.operations.some(item => item.path === 'prisma/schema.prisma'));
     assert.ok(plan.operations.some(item => item.path === 'package-lock.json'));
     assert.deepEqual(await readdir(root), []);
@@ -74,12 +74,12 @@ test('VERIFY detects tamper and REPAIR restores authenticated bytes without chan
   try {
     const plan = await planNativeTarget(root, { sourceRoot, productId: 'fixture', receiptPath: receipt });
     await applyNativePlan(plan, { sourceRoot, authorized: true });
-    await writeFile(path.join(root, 'src', 'app.ts'), '// tampered\n');
+    await writeFile(path.join(root, 'src', 'index.ts'), '// tampered\n');
     assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'FAIL');
     const repaired = await repairNativeTarget(root, receipt, { sourceRoot, authorized: true });
     assert.equal(repaired.state, 'COMPLETE');
     assert.equal(repaired.versionChanged, false);
-    assert.deepEqual(repaired.repaired, ['src/app.ts']);
+    assert.deepEqual(repaired.repaired, ['src/index.ts']);
     assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS');
   } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
 });
@@ -124,13 +124,13 @@ test('journal temp interruption recovers from the prior valid revision', async (
 });
 
 test('abrupt REPAIR states recover to an unmixed old or repaired pair', async () => {
-  for (const point of ['repair-quarantined:src/app.ts', 'repair-published:src/app.ts', 'repair-verified', 'repair-complete']) {
+  for (const point of ['repair-quarantined:src/index.ts', 'repair-published:src/index.ts', 'repair-verified', 'repair-complete']) {
     const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-repair-crash-'));
     const receipt = path.join(os.tmpdir(), `auth-native-repair-crash-${Date.now()}-${Math.random()}.json`);
     try {
       const plan = await planNativeTarget(root, { sourceRoot, productId: 'fixture', receiptPath: receipt });
       await applyNativePlan(plan, { sourceRoot, authorized: true });
-      await writeFile(path.join(root, 'src', 'app.ts'), '// pre-repair tamper\n');
+      await writeFile(path.join(root, 'src', 'index.ts'), '// pre-repair tamper\n');
       const program = `import {repairNativeTarget} from ${JSON.stringify(new URL('./auth-native-wizard.mjs', import.meta.url).href)};await repairNativeTarget(${JSON.stringify(root)},${JSON.stringify(receipt)},{sourceRoot:${JSON.stringify(sourceRoot)},authorized:true});`;
       const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8', env: { ...process.env, AUTH_NATIVE_TEST_MODE: '1', AUTH_NATIVE_TEST_CRASH_AT: point } });
       assert.equal(child.status, 86, point);
@@ -140,7 +140,7 @@ test('abrupt REPAIR states recover to an unmixed old or repaired pair', async ()
         assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS');
       } else {
         assert.equal(recovery.state, 'ROLLED_BACK');
-        assert.equal(await readFile(path.join(root, 'src', 'app.ts'), 'utf8'), '// pre-repair tamper\n');
+        assert.equal(await readFile(path.join(root, 'src', 'index.ts'), 'utf8'), '// pre-repair tamper\n');
         assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'FAIL');
         assert.equal((await repairNativeTarget(root, receipt, { sourceRoot, authorized: true })).verification.verification, 'PASS');
       }
@@ -154,12 +154,12 @@ test('explicit migration records lineage and crash recovery never leaves a mixed
   try {
     assert.equal(spawnSync('git', ['clone', '--quiet', '--no-local', sourceRoot, source]).status, 0);
     const base = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).stdout.trim();
-    const markerPath = path.join(source, 'src', 'auth', 'jwtTokens.ts');
+    const markerPath = path.join(source, 'profiles', 'typescript-node-express-prisma', 'src', 'index.ts');
     await writeFile(markerPath, `${await readFile(markerPath, 'utf8')}\n// immutable upgrade fixture\n`);
-    assert.equal(spawnSync('git', ['-c', 'user.name=AUTH Test', '-c', 'user.email=auth-test@example.invalid', 'add', 'src/auth/jwtTokens.ts'], { cwd: source }).status, 0);
+    assert.equal(spawnSync('git', ['-c', 'user.name=AUTH Test', '-c', 'user.email=auth-test@example.invalid', 'add', 'profiles/typescript-node-express-prisma/src/index.ts'], { cwd: source }).status, 0);
     assert.equal(spawnSync('git', ['-c', 'user.name=AUTH Test', '-c', 'user.email=auth-test@example.invalid', 'commit', '--quiet', '-m', 'upgrade fixture'], { cwd: source }).status, 0);
     const target = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).stdout.trim();
-    for (const point of [null, 'migrate-quarantined:src/auth/jwtTokens.ts', 'migrate-published:src/auth/jwtTokens.ts', 'migrate-verified', 'migrate-receipt-published', 'migrate-complete']) {
+    for (const point of [null, 'migrate-quarantined:src/index.ts', 'migrate-published:src/index.ts', 'migrate-verified', 'migrate-receipt-published', 'migrate-complete']) {
       const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-upgrade-'));
       const receipt = path.join(os.tmpdir(), `auth-native-upgrade-old-${Date.now()}-${Math.random()}.json`);
       const nextReceipt = path.join(os.tmpdir(), `auth-native-upgrade-new-${Date.now()}-${Math.random()}.json`);
