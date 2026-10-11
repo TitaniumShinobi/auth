@@ -122,3 +122,29 @@ test('journal temp interruption recovers from the prior valid revision', async (
     assert.deepEqual(await readdir(root), []);
   } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
 });
+
+test('abrupt REPAIR states recover to an unmixed old or repaired pair', async () => {
+  for (const point of ['repair-quarantined:src/app.ts', 'repair-published:src/app.ts', 'repair-verified', 'repair-complete']) {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-repair-crash-'));
+    const receipt = path.join(os.tmpdir(), `auth-native-repair-crash-${Date.now()}-${Math.random()}.json`);
+    try {
+      const plan = await planNativeTarget(root, { sourceRoot, productId: 'fixture', receiptPath: receipt });
+      await applyNativePlan(plan, { sourceRoot, authorized: true });
+      await writeFile(path.join(root, 'src', 'app.ts'), '// pre-repair tamper\n');
+      const program = `import {repairNativeTarget} from ${JSON.stringify(new URL('./auth-native-wizard.mjs', import.meta.url).href)};await repairNativeTarget(${JSON.stringify(root)},${JSON.stringify(receipt)},{sourceRoot:${JSON.stringify(sourceRoot)},authorized:true});`;
+      const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8', env: { ...process.env, AUTH_NATIVE_TEST_MODE: '1', AUTH_NATIVE_TEST_CRASH_AT: point } });
+      assert.equal(child.status, 86, point);
+      const recovery = await recoverNativeTransactions(root);
+      if (point === 'repair-complete') {
+        assert.equal(recovery.state, 'FINALIZED');
+        assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS');
+      } else {
+        assert.equal(recovery.state, 'ROLLED_BACK');
+        assert.equal(await readFile(path.join(root, 'src', 'app.ts'), 'utf8'), '// pre-repair tamper\n');
+        assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'FAIL');
+        assert.equal((await repairNativeTarget(root, receipt, { sourceRoot, authorized: true })).verification.verification, 'PASS');
+      }
+      assert.deepEqual((await readdir(root)).filter(name => name.startsWith('.auth-native-transaction-')), []);
+    } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
+  }
+});

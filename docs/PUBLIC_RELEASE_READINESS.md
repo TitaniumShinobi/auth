@@ -2,7 +2,7 @@
 
 Status: **not ready** under the [transient wizard architecture](AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md).
 
-The initial native workflow is executable and initial APPLY now has controlled-process crash recovery with adversarial-replacement protection. Crash-recoverable repair/migration, product-neutral source generalization, complete capability acceptance, superseded-machinery removal, public-artifact disposition, and unrestricted clean-clone runtime proof remain open executable gates. Owner-controlled release actions cannot convert an unresolved executable gate into readiness.
+The initial native workflow is executable; APPLY and same-version REPAIR now have controlled-process crash recovery with adversarial-replacement protection. Crash-recoverable migration, product-neutral source generalization, complete capability acceptance, superseded-machinery removal, public-artifact disposition, and unrestricted clean-clone runtime proof remain open executable gates. Owner-controlled release actions cannot convert an unresolved executable gate into readiness.
 
 The earlier conditionally-ready assessment below applies only to the superseded installed-runtime campaign and is retained temporarily as audit evidence.
 
