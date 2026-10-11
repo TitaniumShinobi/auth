@@ -68,8 +68,8 @@ function runtimePackage(productId) {
     name: `@life-auth/${productId.replace(/[^a-z0-9._-]/g, '-')}-runtime`, version: '1.0.0', private: true, type: 'module',
     scripts: { build: 'tsc -p tsconfig.json', 'deps:locked': 'npm ci', 'prisma:generate': 'prisma generate', start: 'node dist/index.js', dev: 'npm run build && npm run start' },
     engines: { node: '>=20' },
-    dependencies: { '@prisma/client': '^6.19.0', express: '^5.1.0', jose: '^6.1.2', redis: '^5.10.0' },
-    devDependencies: { '@types/node': '^26.0.0', prisma: '^6.19.0', typescript: '^6.0.3' },
+    dependencies: { '@prisma/client': '6.12.0', express: '^5.1.0', jose: '^6.1.2', redis: '^5.10.0' },
+    devDependencies: { '@types/node': '^26.0.0', prisma: '6.12.0', typescript: '^6.0.3' },
   };
 }
 
