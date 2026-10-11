@@ -1,5 +1,7 @@
 # AUTH operator guide for agentic coders
 
+Canonical architecture: [AUTH transient wizard architecture](AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md). Agents produce or align product-native authentication and must not install `.auth-runtime`, `.auth-kit`, an AUTH-owned adapter, daemon, package, workflow, or lifecycle control plane. The legacy adapter instructions below are retained temporarily as migration evidence and are not authority for a new integration.
+
 You operate AUTH for a consuming product; you are not a replacement for AUTH. Run AUTH SETUP to install the complete product-local authentication runtime, then use the catalog, observation adapter, and supported lifecycle commands. The product supplies only configuration, secrets, UI, routing, deployment, and observation around that installed runtime. Never manually construct, copy, adapt, or carry authentication runtime/provider code. AUTH's evidence report does not itself prove a deployed authentication flow.
 
 ## Setup and runtime boundary

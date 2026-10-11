@@ -1,4 +1,6 @@
-# AUTH durability architecture
+# AUTH durability architecture (superseded)
+
+This installed-runtime architecture is superseded by [AUTH transient wizard architecture](AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md). Its transaction, provenance, rollback, verification, and crash-recovery techniques are being ported to exact target-native changes; its `.auth-runtime`, `.auth-kit`, baseline, observer, and lifecycle-control-plane ownership model is not the product destination.
 
 This document is the canonical architecture for AUTH durability. Implementation and documentation must change together: a lifecycle, ownership, artifact, or invariant change is incomplete until this document and the affected implementation agree.
 

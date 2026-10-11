@@ -1,4 +1,6 @@
-# AUTH canonical wizard contract — v1
+# AUTH legacy evidence wizard contract — v1
+
+This adapter/baseline contract is superseded by the [transient target-native wizard architecture](AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md). It remains during successor construction only so its fail-closed evidence semantics and machine classifications can be ported without weakening them.
 
 The canonical lifecycle and ownership model is [AUTH durability architecture](AUTH_DURABILITY_ARCHITECTURE.md). This document specifies evidence evaluation and bounded operator behavior within that architecture.
 

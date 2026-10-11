@@ -1,4 +1,12 @@
-# Auth Setup Kit
+# AUTH
+
+Canonical architecture: [AUTH transient wizard architecture](docs/AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md). Public acceptance: [AUTH public-production rubric](docs/AUTH_PUBLIC_PRODUCTION_RUBRIC.md).
+
+AUTH is a transient authentication-engineering wizard for general products. It discovers and classifies a target, prepares an exact target-native authentication plan, applies only an authorized plan, verifies the result, emits an operator-selected secret-free receipt, and exits. The product owns the resulting native source, configuration and persistence schemas, migrations, tests, standards contracts, CI, identities, sessions, and data.
+
+AUTH does not install `.auth-runtime`, `.auth-kit`, an adapter, daemon, shadow runtime, copied package, lifecycle control plane, or continuing dependency on this repository. Older documentation below describing that model is superseded until removed by the governed cleanup campaign.
+
+Current successor commands are `bin/auth native discover`, `plan`, `apply`, `verify`, `repair`, `migrate`, and `recover`; see [AUTH native CLI](docs/AUTH_NATIVE_CLI.md). Legacy persistent-artifact commands fail closed and are retained only as temporary removal evidence.
 
 Canonical architecture: [AUTH durability architecture](docs/AUTH_DURABILITY_ARCHITECTURE.md). It defines the product-local lifecycle, ownership boundaries, transactional SETUP invariants, and intentionally deferred gaps.
 

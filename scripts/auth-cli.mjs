@@ -29,24 +29,18 @@ const TARGET_APPS = new Set(['chatty', 'cleanhouse', 'code', 'vvault']);
 function usage(exitCode = 0) {
   const output = [
     'Usage:',
+    '  auth native <discover|plan|apply|verify|repair|migrate|recover> --repo <path> [--product <id>] [--receipt <path>] [--plan <path>] [--target-revision <commit>] [--dry-run] [--authorize]',
     '  auth acceptance --adapter <json> (read-only configured-runtime and live-acceptance report)',
     '  auth conformance --adapter <json> --app <id> --client-id <registered client> --out <new json> [--authority http://localhost:1111]',
-    '  auth product <verify|maintain|establish|advance|amend> [approval.json] --repo <path>',
-    '  auth runtime <verify|establish|repair|upgrade|recover> --repo <path> --app <id> [--target-revision <commit>] [--authorize]',
-    '  auth observer scaffold --repo <path> --app <id> --authorize',
-    '  auth setup --config <product-config.json> --inputs <input-paths.json> --adapter <observer.mjs> --repo <path> --app <id> --authorize',
-    '  auth setup --repo <path> --app <chatty|cleanhouse|code|vvault> [--dry-run | --authorize]',
-    '  auth validate --repo <path> --app <chatty|cleanhouse|code|vvault>',
     '  auth wizard --adapter <json> [--baseline <json>] [--profile RELYING_PARTY_CLIENT|ASSERTION_INTEGRATION|AUTHORITY_RUNTIME|FULL_AUTHORITY_CONFORMANCE] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--authorize]',
     '              [--repo <path>] [--outcome <description>] [--capability <id>] [--authority-evidence <json> --authority-sha256 <trusted digest>]',
     '',
     'Rules:',
-    '  setup installs the complete product-local authentication runtime and durability kit.',
-    '  products supply only configuration, secrets, UI, routing, deployment, and observation.',
-    '  never manually recreate, copy, adapt, or carry runtime/provider implementation.',
-    '  validate is read-only and reports missing setup evidence.',
+    '  native commands create or align product-owned authentication and leave no AUTH runtime or control plane.',
+    '  .auth-runtime, .auth-kit, AUTH adapters, daemons, copied packages, and source dependencies are prohibited.',
+    '  legacy setup/runtime/product/observer commands are superseded pending removal.',
     '  wizard defaults to VERIFY and evaluates any product adapter without modifying it.',
-    '  setup writes require explicit --authorize; wizard ACT executes only an explicitly registered bounded handler.',
+    '  native apply/repair require explicit --authorize; wizard ACT executes only an explicitly registered bounded handler.',
     '  secret values are never printed or read from .env files.',
   ].join('\n');
   (exitCode === 0 ? console.log : console.error)(output);
@@ -645,7 +639,35 @@ async function validate(args) {
 
 try {
   const argv = process.argv.slice(2);
-  if (argv[0] === 'observer') {
+  if (['setup', 'validate', 'runtime', 'product', 'observer'].includes(argv[0])) {
+    throw new Error('LEGACY_PERSISTENT_AUTH_COMMAND_REMOVED_USE_NATIVE_WORKFLOW');
+  } else if (argv[0] === 'native') {
+    const operation = argv[1];
+    const value = flag => { const index = argv.indexOf(flag); return index >= 0 ? argv[index + 1] : undefined; };
+    const root = value('--repo');
+    if (!root || !['discover', 'plan', 'apply', 'verify', 'repair', 'migrate', 'recover'].includes(operation)) throw new Error('auth native <discover|plan|apply|verify|repair|migrate|recover> --repo <path>');
+    const native = await import('./auth-native-wizard.mjs');
+    const receipt = value('--receipt'), planPath = value('--plan'), productId = value('--product') || path.basename(path.resolve(root));
+    let result;
+    if (operation === 'discover') result = await native.discoverNativeTarget(path.resolve(root));
+    else if (operation === 'plan') {
+      result = await native.planNativeTarget(path.resolve(root), { sourceRoot: repoRoot, sourceRevision: value('--target-revision') || 'HEAD', productId, receiptPath: receipt });
+      if (planPath) await import('node:fs/promises').then(({ writeFile }) => writeFile(path.resolve(planPath), `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' }));
+    } else if (operation === 'apply') {
+      if (!planPath) throw new Error('native apply requires --plan');
+      const plan = await readJson(path.resolve(planPath));
+      result = await native.applyNativePlan(plan, { sourceRoot: repoRoot, authorized: argv.includes('--authorize'), dryRun: argv.includes('--dry-run') });
+    } else if (operation === 'verify') {
+      if (!receipt) throw new Error('native verify requires --receipt');
+      result = await native.verifyNativeReceipt(path.resolve(root), path.resolve(receipt));
+    } else if (operation === 'repair') {
+      if (!receipt) throw new Error('native repair requires --receipt');
+      result = await native.repairNativeTarget(path.resolve(root), path.resolve(receipt), { sourceRoot: repoRoot, authorized: argv.includes('--authorize') });
+    } else if (operation === 'recover') result = await native.recoverNativeTransactions(path.resolve(root));
+    else throw new Error('NATIVE_MIGRATION_TARGET_PROFILE_REQUIRED');
+    console.log(JSON.stringify(result, null, 2));
+    if (result.verification === 'FAIL') process.exitCode = 2;
+  } else if (argv[0] === 'observer') {
     const operation = argv[1];
     const value = (flag) => { const index = argv.indexOf(flag); return index >= 0 ? argv[index + 1] : undefined; };
     const root = value('--repo'), productId = value('--app');

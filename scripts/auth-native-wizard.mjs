@@ -1,0 +1,265 @@
+/** Transient target-native AUTH wizard. It leaves product source and an optional receipt, never an AUTH control plane. */
+import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+export const NATIVE_PROFILE = 'typescript-node-express-prisma/1';
+export const RECEIPT_SCHEMA = 'life.auth.receipt/1';
+const TX_PREFIX = '.auth-native-transaction-';
+const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+const digestJson = value => sha(Buffer.from(JSON.stringify(canonical(value))));
+const json = value => `${JSON.stringify(value, null, 2)}\n`;
+const exists = async target => { try { return await lstat(target); } catch (error) { if (error?.code === 'ENOENT') return null; throw error; } };
+const safeRelative = relative => {
+  if (typeof relative !== 'string' || !relative || path.isAbsolute(relative) || relative.includes('\\') || relative.split('/').some(part => !part || part === '..')) throw new Error('UNSAFE_TARGET_PATH');
+  return relative;
+};
+const inside = (root, relative) => path.join(root, safeRelative(relative));
+
+function git(root, args, encoding = 'utf8') {
+  try { return execFileSync('git', args, { cwd: root, encoding, maxBuffer: 32 * 1024 * 1024 }); }
+  catch { throw new Error('AUTHORITATIVE_PROFILE_SOURCE_REQUIRED'); }
+}
+
+function authoritativeSource(sourceRoot, revision = 'HEAD') {
+  const commit = git(sourceRoot, ['rev-parse', '--verify', `${revision}^{commit}`]).trim();
+  return { mode: 'git-commit', revision: commit, tree: git(sourceRoot, ['rev-parse', `${commit}^{tree}`]).trim() };
+}
+
+function profilePaths(sourceRoot, revision) {
+  const listed = git(sourceRoot, ['ls-tree', '-r', '--name-only', revision, '--', 'src', 'prisma/schema.prisma']).split('\n').filter(Boolean);
+  return listed.filter(name => !name.startsWith('src/test/') && !name.endsWith('.test.ts') && !name.endsWith('.test.mjs')).sort();
+}
+
+function profileBytes(sourceRoot, revision, sourcePath) {
+  return git(sourceRoot, ['show', `${revision}:${sourcePath}`], null);
+}
+
+async function targetInventory(root) {
+  const candidates = ['package.json', 'package-lock.json', 'tsconfig.json', 'src', 'prisma/schema.prisma'];
+  const result = {};
+  for (const relative of candidates) {
+    const entry = await exists(path.join(root, relative));
+    result[relative] = entry ? (entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : 'special') : 'missing';
+  }
+  return result;
+}
+
+async function boundedAuthEvidence(root) {
+  const candidates = ['src/auth', 'src/app.ts', 'src/routes/auth.ts', 'server/auth', 'app/api/auth', 'prisma/schema.prisma'];
+  const found = [];
+  for (const relative of candidates) if (await exists(path.join(root, relative))) found.push(relative);
+  return found;
+}
+
+export async function discoverNativeTarget(targetRoot) {
+  const root = await realpath(targetRoot);
+  const inventory = await targetInventory(root);
+  const authEvidence = await boundedAuthEvidence(root);
+  let packageJson = null;
+  if (inventory['package.json'] === 'file') {
+    try { packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')); } catch { throw new Error('TARGET_PACKAGE_JSON_INVALID'); }
+  }
+  const dependencies = { ...(packageJson?.dependencies || {}), ...(packageJson?.devDependencies || {}) };
+  const stack = {
+    language: dependencies.typescript || inventory['tsconfig.json'] === 'file' ? 'typescript' : packageJson ? 'javascript' : 'unknown',
+    runtime: packageJson ? 'node' : 'unknown', express: Boolean(dependencies.express), prisma: Boolean(dependencies.prisma || dependencies['@prisma/client']),
+  };
+  const prohibited = [];
+  for (const relative of ['.auth-runtime', '.auth-kit']) if (await exists(path.join(root, relative))) prohibited.push(relative);
+  const classification = prohibited.length ? 'NONCONFORMANT' : authEvidence.length ? 'COMPATIBLE'
+    : packageJson && stack.language === 'typescript' && stack.express && stack.prisma ? 'GREENFIELD' : packageJson ? 'AUTH_DEVELOPMENT_REQUIRED' : 'GREENFIELD';
+  return { schemaVersion: 1, operation: 'DISCOVER', targetRoot: root, classification, stack, authEvidence, prohibitedPersistentArtifacts: prohibited, inventory };
+}
+
+function generatedPackage(productId) {
+  return {
+    name: productId.replace(/[^a-z0-9._-]/gi, '-').toLowerCase(), version: '0.1.0', private: true, type: 'module',
+    scripts: { build: 'tsc -p tsconfig.json', 'prisma:generate': 'prisma generate', start: 'node dist/index.js' },
+    engines: { node: '>=20' },
+    dependencies: { '@prisma/client': '6.12.0', express: '^5.1.0', jose: '^6.1.2', redis: '^5.10.0' },
+    devDependencies: { '@types/node': '^26.0.0', prisma: '6.12.0', typescript: '^6.0.3' },
+  };
+}
+
+const generatedTsconfig = { compilerOptions: { target: 'ES2022', module: 'NodeNext', moduleResolution: 'NodeNext', lib: ['ES2022'], types: ['node'], rootDir: 'src', outDir: 'dist', strict: true, noImplicitAny: false, skipLibCheck: true, esModuleInterop: true, forceConsistentCasingInFileNames: true, resolveJsonModule: true }, include: ['src/**/*.ts', 'src/**/*.d.ts'] };
+
+export async function planNativeTarget(targetRoot, { sourceRoot, sourceRevision = 'HEAD', productId = 'product', receiptPath, mode = 'create' } = {}) {
+  const discovery = await discoverNativeTarget(targetRoot);
+  if (discovery.prohibitedPersistentArtifacts.length) throw new Error('PERSISTENT_AUTH_ARTIFACT_MIGRATION_REQUIRED');
+  if (!sourceRoot || !receiptPath) throw new Error('SOURCE_AND_RECEIPT_REQUIRED');
+  const source = authoritativeSource(sourceRoot, sourceRevision);
+  const paths = profilePaths(sourceRoot, source.revision);
+  paths.push('package-lock.json');
+  const operations = [];
+  for (const sourcePath of paths) {
+    const bytes = profileBytes(sourceRoot, source.revision, sourcePath);
+    const existing = await exists(path.join(discovery.targetRoot, sourcePath));
+    if (existing) {
+      if (!existing.isFile()) throw new Error(`TARGET_PATH_COLLISION:${sourcePath}`);
+      const current = await readFile(path.join(discovery.targetRoot, sourcePath));
+      if (sha(current) !== sha(bytes)) throw new Error(`EXISTING_AUTH_REVIEW_REQUIRED:${sourcePath}`);
+      operations.push({ path: sourcePath, action: 'retain', owner: 'product', preimageSha256: sha(current), postimageSha256: sha(bytes), sourcePath });
+    } else operations.push({ path: sourcePath, action: 'create', owner: 'product', preimageSha256: null, postimageSha256: sha(bytes), sourcePath });
+  }
+  for (const [relative, bytes] of [
+    ['package.json', Buffer.from(json(generatedPackage(productId)))],
+    ['tsconfig.json', Buffer.from(json(generatedTsconfig))],
+    ['auth-standards.json', Buffer.from(json({ schema: 'life.auth.native-contract/1', profile: NATIVE_PROFILE, productId, capabilities: ['oauth-oidc','pkce','callbacks','credentials','magic-email','sessions','cookies','refresh-rotation','replay-protection','revocation','logout','prisma-persistence','native-cli','mcp-resource-server'] }))],
+  ]) {
+    const existing = await exists(path.join(discovery.targetRoot, relative));
+    if (existing) {
+      if (!existing.isFile() || sha(await readFile(path.join(discovery.targetRoot, relative))) !== sha(bytes)) throw new Error(`EXISTING_PRODUCT_FILE_REVIEW_REQUIRED:${relative}`);
+      operations.push({ path: relative, action: 'retain', owner: 'product', preimageSha256: sha(bytes), postimageSha256: sha(bytes), generated: true });
+    } else operations.push({ path: relative, action: 'create', owner: 'product', preimageSha256: null, postimageSha256: sha(bytes), generated: true });
+  }
+  const plan = { schema: 'life.auth.native-plan/1', profile: NATIVE_PROFILE, mode, productId, targetRoot: discovery.targetRoot, receiptPath: path.resolve(receiptPath), source, classification: discovery.classification, operations, limitations: ['power-loss-fsync-not-proven','irreversible-migrations-not-supported'] };
+  plan.planDigest = digestJson(plan);
+  return plan;
+}
+
+async function bytesFor(plan, operation, sourceRoot) {
+  if (operation.sourcePath) return profileBytes(sourceRoot, plan.source.revision, operation.sourcePath);
+  if (operation.path === 'package.json') return Buffer.from(json(generatedPackage(plan.productId)));
+  if (operation.path === 'tsconfig.json') return Buffer.from(json(generatedTsconfig));
+  if (operation.path === 'auth-standards.json') return Buffer.from(json({ schema: 'life.auth.native-contract/1', profile: NATIVE_PROFILE, productId: plan.productId, capabilities: ['oauth-oidc','pkce','callbacks','credentials','magic-email','sessions','cookies','refresh-rotation','replay-protection','revocation','logout','prisma-persistence','native-cli','mcp-resource-server'] }));
+  throw new Error('PLAN_SOURCE_UNSUPPORTED');
+}
+
+async function persistJournal(journalPath, journal) {
+  journal.revision += 1;
+  const temp = `${journalPath}.tmp-${randomUUID()}`;
+  await writeFile(temp, json(journal), { flag: 'wx', mode: 0o600 });
+  await rename(temp, journalPath);
+}
+
+export async function applyNativePlan(plan, { sourceRoot, authorized = false, dryRun = false } = {}) {
+  if (dryRun) return { operation: 'APPLY', state: 'DRY_RUN', planDigest: plan.planDigest, changed: [] };
+  if (!authorized) throw new Error('EXPLICIT_AUTHORIZATION_REQUIRED');
+  const root = await realpath(plan.targetRoot);
+  const { planDigest, ...planPayload } = plan;
+  if (root !== plan.targetRoot || plan.profile !== NATIVE_PROFILE || plan.schema !== 'life.auth.native-plan/1' || digestJson(planPayload) !== planDigest) throw new Error('NATIVE_PLAN_INVALID');
+  const transactionId = randomUUID();
+  const stageName = `${TX_PREFIX}${transactionId}`;
+  const stage = path.join(root, stageName);
+  const journalPath = path.join(root, `${stageName}.json`);
+  const journal = { schema: 'life.auth.native-transaction/1', transactionId, revision: 0, state: 'STAGING', planDigest: plan.planDigest, created: [] };
+  await mkdir(stage, { mode: 0o700 });
+  await writeFile(journalPath, json(journal), { flag: 'wx', mode: 0o600 });
+  try {
+    for (const operation of plan.operations.filter(item => item.action === 'create')) {
+      const bytes = await bytesFor(plan, operation, sourceRoot);
+      if (sha(bytes) !== operation.postimageSha256) throw new Error(`PLAN_SOURCE_DRIFT:${operation.path}`);
+      const staged = inside(stage, operation.path);
+      await mkdir(path.dirname(staged), { recursive: true });
+      await writeFile(staged, bytes, { flag: 'wx' });
+    }
+    journal.state = 'PUBLISHING'; await persistJournal(journalPath, journal);
+    for (const operation of plan.operations.filter(item => item.action === 'create')) {
+      const destination = inside(root, operation.path);
+      if (await exists(destination)) throw new Error(`TARGET_CHANGED_AFTER_PLAN:${operation.path}`);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await rename(inside(stage, operation.path), destination);
+      const entry = await stat(destination);
+      journal.created.push({ path: operation.path, dev: entry.dev, ino: entry.ino, sha256: sha(await readFile(destination)) });
+      await persistJournal(journalPath, journal);
+    }
+    journal.state = 'COMPLETE'; await persistJournal(journalPath, journal);
+    const verification = await verifyNativeTarget(root, plan);
+    if (verification.verification !== 'PASS') throw new Error('POST_APPLY_VERIFY_FAILED');
+    const receipt = { schema: RECEIPT_SCHEMA, profile: plan.profile, productId: plan.productId, targetBinding: verification.targetBinding, source: plan.source, planDigest: plan.planDigest, files: verification.files, capabilities: JSON.parse(await readFile(path.join(root, 'auth-standards.json'), 'utf8')).capabilities, verification: 'PASS', priorReceiptDigest: null, limitations: plan.limitations };
+    receipt.receiptDigest = digestJson(receipt);
+    const receiptTarget = path.resolve(plan.receiptPath);
+    if (await exists(receiptTarget)) throw new Error('RECEIPT_DESTINATION_EXISTS');
+    await mkdir(path.dirname(receiptTarget), { recursive: true });
+    await writeFile(receiptTarget, json(receipt), { flag: 'wx', mode: 0o600 });
+    await rm(stage, { recursive: true }); await rm(journalPath);
+    return { operation: 'APPLY', state: 'COMPLETE', receipt: receiptTarget, verification };
+  } catch (error) {
+    for (const created of [...journal.created].reverse()) {
+      const destination = inside(root, created.path);
+      const entry = await exists(destination);
+      if (!entry || entry.isSymbolicLink() || !entry.isFile()) continue;
+      const current = await stat(destination);
+      if (current.dev !== created.dev || current.ino !== created.ino || sha(await readFile(destination)) !== created.sha256) throw new Error(`ROLLBACK_REFUSED:${created.path}`);
+      await rm(destination);
+    }
+    await rm(stage, { recursive: true, force: true }); await rm(journalPath, { force: true });
+    throw error;
+  }
+}
+
+export async function verifyNativeTarget(targetRoot, planOrReceipt) {
+  const root = await realpath(targetRoot);
+  const files = {};
+  const expected = planOrReceipt.files || Object.fromEntries(planOrReceipt.operations.map(item => [item.path, item.postimageSha256]));
+  const failures = [];
+  for (const [relative, expectedDigest] of Object.entries(expected)) {
+    const entry = await exists(inside(root, relative));
+    if (!entry || entry.isSymbolicLink() || !entry.isFile()) { failures.push({ path: relative, error: 'MISSING_OR_UNSAFE' }); continue; }
+    const actual = sha(await readFile(inside(root, relative))); files[relative] = actual;
+    if (actual !== expectedDigest) failures.push({ path: relative, error: 'DIGEST_MISMATCH' });
+  }
+  const prohibited = [];
+  for (const relative of ['.auth-runtime', '.auth-kit']) if (await exists(path.join(root, relative))) prohibited.push(relative);
+  if (prohibited.length) failures.push({ error: 'PERSISTENT_AUTH_FOOTPRINT', paths: prohibited });
+  return { operation: 'VERIFY', verification: failures.length ? 'FAIL' : 'PASS', targetBinding: sha(Buffer.from(root)), files, failures, prohibitedPersistentArtifacts: prohibited };
+}
+
+export async function verifyNativeReceipt(targetRoot, receiptPath) {
+  const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+  const { receiptDigest, ...payload } = receipt;
+  if (receipt.schema !== RECEIPT_SCHEMA || digestJson(payload) !== receiptDigest) throw new Error('RECEIPT_INVALID');
+  return verifyNativeTarget(targetRoot, receipt);
+}
+
+export async function repairNativeTarget(targetRoot, receiptPath, { sourceRoot, authorized = false } = {}) {
+  if (!authorized) throw new Error('EXPLICIT_AUTHORIZATION_REQUIRED');
+  const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+  if (receipt.profile !== NATIVE_PROFILE) throw new Error('REPAIR_VERSION_MISMATCH');
+  const before = await verifyNativeReceipt(targetRoot, receiptPath);
+  if (before.verification === 'PASS') return { operation: 'REPAIR', state: 'NO_CHANGES', verification: before };
+  if (before.failures.some(item => item.error === 'PERSISTENT_AUTH_FOOTPRINT')) throw new Error('REPAIR_REFUSES_ARCHITECTURE_MIGRATION');
+  const root = await realpath(targetRoot);
+  const source = authoritativeSource(sourceRoot, receipt.source.revision);
+  if (source.revision !== receipt.source.revision || source.tree !== receipt.source.tree) throw new Error('REPAIR_SOURCE_PROVENANCE_INVALID');
+  const repairable = before.failures.filter(item => item.path).map(item => item.path);
+  const tx = randomUUID(), stage = path.join(root, `${TX_PREFIX}${tx}`), quarantine = path.join(root, `${TX_PREFIX}${tx}-quarantine`);
+  await mkdir(stage, { mode: 0o700 }); await mkdir(quarantine, { mode: 0o700 });
+  const moved = [];
+  try {
+    for (const relative of repairable) {
+      const operation = { path: relative, ...(relative.startsWith('src/') || relative === 'prisma/schema.prisma' || relative === 'package-lock.json' ? { sourcePath: relative } : { generated: true }) };
+      const bytes = await bytesFor({ ...receipt, productId: receipt.productId }, operation, sourceRoot);
+      if (sha(bytes) !== receipt.files[relative]) throw new Error(`REPAIR_SOURCE_DIGEST_MISMATCH:${relative}`);
+      const staged = inside(stage, relative); await mkdir(path.dirname(staged), { recursive: true }); await writeFile(staged, bytes, { flag: 'wx' });
+      const destination = inside(root, relative), old = inside(quarantine, relative);
+      const oldEntry = await exists(destination);
+      if (oldEntry) { if (oldEntry.isSymbolicLink() || !oldEntry.isFile()) throw new Error(`REPAIR_TARGET_UNSAFE:${relative}`); await mkdir(path.dirname(old), { recursive: true }); await rename(destination, old); moved.push({ relative, old: true }); }
+      else moved.push({ relative, old: false });
+      await mkdir(path.dirname(destination), { recursive: true }); await rename(staged, destination);
+    }
+    const verification = await verifyNativeReceipt(root, receiptPath);
+    if (verification.verification !== 'PASS') throw new Error('POST_REPAIR_VERIFY_FAILED');
+    await rm(stage, { recursive: true }); await rm(quarantine, { recursive: true });
+    return { operation: 'REPAIR', state: 'COMPLETE', profile: receipt.profile, versionChanged: false, repaired: repairable, verification };
+  } catch (error) {
+    for (const item of [...moved].reverse()) {
+      const destination = inside(root, item.relative), old = inside(quarantine, item.relative);
+      if (await exists(destination)) await rm(destination);
+      if (item.old && await exists(old)) { await mkdir(path.dirname(destination), { recursive: true }); await rename(old, destination); }
+    }
+    await rm(stage, { recursive: true, force: true }); await rm(quarantine, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export async function recoverNativeTransactions(targetRoot) {
+  const root = await realpath(targetRoot);
+  const names = (await readdir(root)).filter(name => name.startsWith(TX_PREFIX));
+  if (!names.length) return { operation: 'RECOVER', state: 'CLEAN' };
+  throw new Error('AMBIGUOUS_NATIVE_TRANSACTION_RESIDUE');
+}

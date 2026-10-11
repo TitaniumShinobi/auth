@@ -1,4 +1,6 @@
-# Auth Setup CLI
+# Auth Setup CLI (superseded command contract)
+
+The installed-runtime setup described below is superseded by the [transient wizard architecture](AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md). It remains temporarily as removal evidence while the target-native successor obtains equivalent transaction and recovery coverage. New integrations must not install `.auth-runtime`, `.auth-kit`, an AUTH adapter, or an AUTH workflow.
 
 The lifecycle and ownership authority for this command is [AUTH durability architecture](AUTH_DURABILITY_ARCHITECTURE.md).
 

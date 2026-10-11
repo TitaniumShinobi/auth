@@ -1,4 +1,6 @@
-# Durable product authentication contract — v1
+# Durable product authentication contract — v1 (superseded)
+
+See [AUTH transient wizard architecture](AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md). The product keeps native authentication source, schemas, tests, contracts, CI, and an optional operator-selected receipt, but not `.auth-runtime`, `.auth-kit`, an AUTH adapter, installed AUTH workflow, or lifecycle control plane.
 
 The canonical lifecycle and ownership model is [AUTH durability architecture](AUTH_DURABILITY_ARCHITECTURE.md).
 
