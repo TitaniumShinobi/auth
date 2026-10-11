@@ -4,7 +4,7 @@ Canonical architecture: [AUTH transient wizard architecture](AUTH_TRANSIENT_WIZA
 
 The successor command group is `auth native <discover|assess|plan|align-plan|apply|verify|repair|migrate|recover>`. DISCOVER, ASSESS, PLAN, ALIGN-PLAN, dry-run APPLY, and VERIFY are read-only. APPLY requires an exact generated plan, `--authorize`, an immutable AUTH source revision, and an operator-selected `--receipt` outside any hidden AUTH control plane.
 
-Legacy `setup`, `validate`, `runtime`, `product`, and `observer` commands now fail with `LEGACY_PERSISTENT_AUTH_COMMAND_REMOVED_USE_NATIVE_WORKFLOW`. Their implementation modules remain temporarily as reviewed source material until the successor reaches equivalent recovery coverage; they are not reachable production commands.
+Legacy `setup`, `validate`, `runtime`, `product`, `observer`, and `acceptance` commands fail with `LEGACY_PERSISTENT_AUTH_COMMAND_REMOVED_USE_NATIVE_WORKFLOW`. Their installed-runtime implementation modules have been removed after successor recovery coverage passed.
 
 The first public profile is `typescript-node-express-prisma/2`. It maps the reviewed product-neutral profile source—not the repository's historical product-specific `src/`—into ordinary product-owned source, Prisma schema, lockfile, `package.json`, `tsconfig.json`, and `auth-standards.json`. It never writes `.auth-runtime`, `.auth-kit`, an adapter, daemon, copied package, installed AUTH workflow, or lifecycle control plane. See [the profile contract](AUTH_TYPESCRIPT_NATIVE_PROFILE.md).
 

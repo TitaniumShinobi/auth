@@ -1,15 +1,11 @@
 # Public onboarding
 
-1. Review [the architecture](AUTH_DURABILITY_ARCHITECTURE.md), [support boundary](../SUPPORT.md), and [security policy](../SECURITY.md).
-2. Run `bin/auth setup --repo <product> --app <id> --authorize`. AUTH installs the complete product-local runtime and durability kit.
-3. Fill only product configuration, secret references, UI, routing, deployment, and `.auth-kit/observer-input.json` observation evidence. Never copy or implement runtime/provider/session code.
-4. Run `bin/auth observer scaffold --repo <product> --app <id> --authorize` only to migrate a legacy unestablished placeholder; new SETUP installations are already scaffolded.
-5. Use OBSERVE, ASSESS, and DECIDE. Follow each handoff's `executionClassification`:
-   - `AUTO_REPAIR_AVAILABLE`: authorize and use the registered bounded ACT handler.
-   - `AGENT_INTEGRATION_REQUIRED`: change only the named product seam and provide expected evidence.
-   - `EXTERNAL_ACTION_REQUIRED`: obtain credentials, registration, consent, legal choice, or owner approval.
-   - `AUTH_DEVELOPMENT_REQUIRED`: stop product work and add the reusable capability to AUTH.
-6. Collect fresh observations and VERIFY after every change.
-7. ESTABLISH only after locked install, Prisma generation, build, startup/readiness, route acceptance, and product evidence pass.
+1. Use Node.js 20 or newer and run `npm ci` in a clean AUTH checkout.
+2. Run `bin/auth native discover --repo /absolute/product` and `native assess` when authentication already exists.
+3. For greenfield TypeScript/Node/Express/Prisma, create an exact `native plan`, review every destination and digest, then run `native apply --authorize`.
+4. For existing authentication, use `native align-plan`; AUTH adds only product-owned standards and observation tests and preserves authentication source.
+5. In the product, run `npm ci`, `npm run prisma:generate`, `npm run prisma:migrate`, `npm run build`, and `npm test` before deployment.
+6. Supply secrets through the product's approved runtime secret channel. Register exact callback URLs with providers and configure product UI, routing/TLS, delivery, deployment, monitoring, and MCP tools.
+7. Keep the operator-selected receipt outside any hidden control plane. Run read-only `native verify` after ordinary development. Use same-version `native repair` only for authenticated owned bytes and explicit `native migrate` for an immutable revision change.
 
-Normal runtime operation uses the installed product-local system and never requires the AUTH source checkout.
+AUTH leaves no daemon, adapter, `.auth-runtime`, `.auth-kit`, copied AUTH package, installed workflow, or source-checkout dependency. Do not manually recreate authentication architecture.
