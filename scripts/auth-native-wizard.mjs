@@ -133,7 +133,7 @@ export async function discoverNativeTarget(targetRoot) {
 function generatedPackage(productId) {
   return {
     name: productId.replace(/[^a-z0-9._-]/gi, '-').toLowerCase(), version: '0.1.0', private: true, type: 'module',
-    scripts: { build: 'tsc -p tsconfig.json', 'prisma:generate': 'prisma generate', start: 'node dist/index.js' },
+    scripts: { build: 'tsc -p tsconfig.json', 'prisma:generate': 'prisma generate', 'prisma:migrate': 'prisma migrate deploy', start: 'node dist/index.js' },
     engines: { node: '>=20' },
     dependencies: { '@prisma/client': '6.12.0', express: '^5.1.0', jose: '^6.1.2', redis: '^5.10.0' },
     devDependencies: { '@types/node': '^26.0.0', prisma: '6.12.0', typescript: '^6.0.3' },

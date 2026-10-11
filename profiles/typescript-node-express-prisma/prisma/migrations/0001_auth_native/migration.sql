@@ -1,0 +1,13 @@
+CREATE TABLE "User" ("id" TEXT NOT NULL PRIMARY KEY, "email" TEXT NOT NULL, "name" TEXT, "passwordHash" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+CREATE TABLE "Session" ("id" TEXT NOT NULL PRIMARY KEY, "userId" TEXT NOT NULL, "expiresAt" DATETIME NOT NULL, "revokedAt" DATETIME, CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE);
+CREATE TABLE "RefreshToken" ("id" TEXT NOT NULL PRIMARY KEY, "sessionId" TEXT NOT NULL, "digest" TEXT NOT NULL, "generation" INTEGER NOT NULL, "expiresAt" DATETIME NOT NULL, "usedAt" DATETIME, "revokedAt" DATETIME, CONSTRAINT "RefreshToken_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session" ("id") ON DELETE CASCADE ON UPDATE CASCADE);
+CREATE UNIQUE INDEX "RefreshToken_digest_key" ON "RefreshToken"("digest");
+CREATE TABLE "AuthorizationCode" ("id" TEXT NOT NULL PRIMARY KEY, "digest" TEXT NOT NULL, "userId" TEXT NOT NULL, "clientId" TEXT NOT NULL, "redirectUri" TEXT NOT NULL, "codeChallenge" TEXT NOT NULL, "nonce" TEXT, "scope" TEXT NOT NULL, "expiresAt" DATETIME NOT NULL, "usedAt" DATETIME, CONSTRAINT "AuthorizationCode_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE);
+CREATE UNIQUE INDEX "AuthorizationCode_digest_key" ON "AuthorizationCode"("digest");
+CREATE TABLE "MagicChallenge" ("id" TEXT NOT NULL PRIMARY KEY, "email" TEXT NOT NULL, "digest" TEXT NOT NULL, "expiresAt" DATETIME NOT NULL, "usedAt" DATETIME);
+CREATE UNIQUE INDEX "MagicChallenge_digest_key" ON "MagicChallenge"("digest");
+CREATE TABLE "OAuthState" ("id" TEXT NOT NULL PRIMARY KEY, "digest" TEXT NOT NULL, "provider" TEXT NOT NULL, "nonce" TEXT NOT NULL, "returnTo" TEXT NOT NULL, "expiresAt" DATETIME NOT NULL, "usedAt" DATETIME);
+CREATE UNIQUE INDEX "OAuthState_digest_key" ON "OAuthState"("digest");
+CREATE TABLE "ProviderIdentity" ("id" TEXT NOT NULL PRIMARY KEY, "provider" TEXT NOT NULL, "subject" TEXT NOT NULL, "userId" TEXT NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE UNIQUE INDEX "ProviderIdentity_provider_subject_key" ON "ProviderIdentity"("provider", "subject");
