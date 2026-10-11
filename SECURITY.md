@@ -14,4 +14,4 @@ Reports should include affected version/commit, impact, minimal reproduction, an
 
 ## Security boundary
 
-AUTH owns installed authentication runtime/provider/session implementation and its lifecycle integrity. Consuming products own configuration, secrets, UI, routing, deployment, observation, and their runtime data. Power-loss durability and irreversible/incompatible migrations are not supported guarantees.
+AUTH owns its wizard, reviewed native profiles, standards schemas, planning, transaction/recovery rules, and verification semantics. A consuming product owns the generated or aligned authentication source, configuration, persistence, tests, secrets, identities, sessions, and data. AUTH leaves no runtime service or control plane. Power-loss durability and irreversible/incompatible migrations are not supported guarantees.
