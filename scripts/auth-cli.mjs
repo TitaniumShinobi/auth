@@ -12,7 +12,6 @@ function usage(code = 0) {
   const output = [
     'Usage:',
     '  auth native <discover|assess|plan|align-plan|apply|verify|repair|migrate|recover> --repo <path> [--product <id>] [--receipt <path>] [--new-receipt <path>] [--plan <path>] [--target-revision <commit>] [--dry-run] [--authorize]',
-    '  auth conformance --adapter <json> --app <id> --client-id <id> --out <new json> [--authority <origin>]',
     '  auth wizard --adapter <json> [--baseline <json>] [--profile <profile>] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--repo <path>] [--outcome <text>] [--capability <id>] [--authority-evidence <json> --authority-sha256 <digest>] [--authorize]',
     '',
     'AUTH creates or aligns product-owned authentication and exits. Persistent AUTH runtimes, kits, adapters, daemons, copied packages, and source dependencies are prohibited.',
@@ -95,6 +94,5 @@ try {
   const argv = process.argv.slice(2); if (!argv.length || ['-h', '--help'].includes(argv[0])) usage(0); if (removed.has(argv[0])) throw new Error('LEGACY_PERSISTENT_AUTH_COMMAND_REMOVED_USE_NATIVE_WORKFLOW');
   if (argv[0] === 'native') await runNative(argv);
   else if (argv[0] === 'wizard') await runWizard(parseFlags(argv));
-  else if (argv[0] === 'conformance') { const args = parseFlags(argv); if (!args.adapter || !args.app || !args['client-id'] || !args.out) throw new Error('conformance requires --adapter --app --client-id --out'); const { generateConformance } = await import('./auth-authority-conformance.mjs'); console.log(JSON.stringify(await generateConformance(args, repoRoot), null, 2)); }
   else throw new Error('UNKNOWN_AUTH_COMMAND');
 } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }

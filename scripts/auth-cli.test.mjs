@@ -10,7 +10,7 @@ import { CAPABILITIES } from './auth-capability-catalog.mjs';
 const cli = fileURLToPath(new URL('./auth-cli.mjs', import.meta.url));
 function run(args) { return spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8', timeout: 5000, env: process.env }); }
 
-test('help advertises only transient native and read-only wizard/conformance surfaces', () => {
+test('help advertises only transient native and read-only wizard surfaces', () => {
   const result = run(['--help']);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /auth native <discover\|assess\|plan\|align-plan\|apply\|verify\|repair\|migrate\|recover>/);

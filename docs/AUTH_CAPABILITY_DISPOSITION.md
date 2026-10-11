@@ -10,7 +10,7 @@
 | Access/refresh rotation | RETAIN | Rotation, replay rejection, expiry, and session binding remain mandatory. |
 | Revocation and logout | RETAIN | Server invalidation and client credential clearing remain independently tested. |
 | Memory/SQLite/PostgreSQL/Prisma persistence | GENERALIZE | Profile/plugin schema without product identities or private datasource defaults. |
-| Native and CLI authorization | GENERALIZE | Registered-client, PKCE, callback, token, and binding standards remain. |
+| Native and CLI authorization | GENERALIZE | The native profile retains registered-client authorization code, PKCE, callback, token, and binding standards. OS activation remains product-owned integration evidence; the product-contaminated coordinator was removed. |
 | MCP authorization | GENERALIZE | OAuth protected-resource metadata and per-request token/resource/scope/subject enforcement. |
 | LIFE/VVAULT owner, assertion, federation, admission, fixed clients | SUPERSEDE | Remove from generic core or express as reviewed neutral extension; owner decides historical destination. |
 | Installed runtime, `.auth-kit`, baselines, observer, swap lifecycle | REMOVE | Replace with target-native plans, receipts, read-only verification, and exact-file recovery. |
