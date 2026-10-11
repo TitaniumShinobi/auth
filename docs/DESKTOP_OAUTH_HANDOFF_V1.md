@@ -2,7 +2,7 @@
 
 Contract: `life.auth.desktop-handoff/v1`. Source: `src/auth/desktopHandoff.ts`.
 
-AUTH supplies a reusable host-side coordinator and callback-page renderer. It does not host a product login page or manage OS windows. The consuming desktop host integrates this module (or implements this versioned interface in its native language) with its existing OAuth/session adapter. No new token format, identity authority, or runtime service is introduced.
+AUTH SETUP installs the authentication runtime and its supported provider/session implementation. The consuming desktop host supplies only OS-window behavior and product-owned callback routing to that installed runtime; it must not recreate the runtime, provider, token, or session implementation. No new token format, identity authority, or parallel runtime service is introduced.
 
 ## Integration
 

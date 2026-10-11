@@ -1,6 +1,8 @@
 # AUTH canonical wizard contract — v1
 
-AUTH owns reusable authentication/account-lifecycle obligations, deterministic evidence evaluation, regression checks, and authorized integration repair boundaries. Products own identities, data, policies, adapters, UI, presentation, transports, and deployed sessions. AUTH is not a required central identity server. Existing runtime modules and setup templates remain reusable; this wizard does not replace provider implementations.
+The canonical lifecycle and ownership model is [AUTH durability architecture](AUTH_DURABILITY_ARCHITECTURE.md). This document specifies evidence evaluation and bounded operator behavior within that architecture.
+
+AUTH owns reusable authentication/account-lifecycle obligations, deterministic evidence evaluation, regression checks, and authorized integration repair boundaries. Products own their installed authentication system, identities, data, policies, evidence collectors, UI, presentation, transports, and deployed sessions. AUTH is not a required central identity server.
 
 ## Setup, runtime independence, and maintenance
 
@@ -9,7 +11,7 @@ AUTH owns reusable authentication/account-lifecycle obligations, deterministic e
 AUTH is a reusable, product-agnostic wizard for first-time setup, diagnosis, bounded repair, and verification. Users must not have to babysit the wizard during normal application use.
 
 - **First setup:** inspect the product, determine applicable capabilities, configure its provider/session/callback/storage/handshake integration, verify the actual end-to-end flow, retain a reviewed known-good baseline, and hand control back to the product.
-- **Normal use:** the product uses its established authentication contract and adapter directly. No wizard interaction, running wizard process, or recurring AUTH orchestration request may be required merely to continue functioning.
+- **Normal use:** the product runs its installed authentication system and established durability contract directly. No wizard interaction, running wizard process, or recurring AUTH orchestration request may be required merely to continue functioning.
 - **Regression or change:** OBSERVE → ASSESS → DECIDE → explicitly authorized bounded ACT → fresh VERIFY. Diagnose the exact broken capability, apply the smallest supported repair, preserve existing applicable behavior, update the baseline only after verification, then exit again.
 
 “Verify once” means establish the initial baseline; it never permits skipping verification after a change. Drift checks may run through product tests/CI or an explicit diagnostic invocation without inserting the wizard into the runtime request path.
@@ -32,7 +34,7 @@ A passing source test, reachable health endpoint, repaired error page, or succes
 
 ## Executable catalog and evidence
 
-`scripts/auth-capability-catalog.mjs` exports immutable capabilities across the declared families: sign in; sign up; identity providers; email identity; enrollment; account linking; optional cross-product enrollment; session lifecycle; relying-party authorization; device/trust; recovery; consent/policy; auth UX; auth/security email; welcome confirmation; security/failure. Each entry names required checks. Import the catalog to generate an adapter checklist; do not maintain a copied list. Additional provider support is an adapter obligation, not a hardcoded product branch.
+`scripts/auth-capability-catalog.mjs` exports immutable capabilities across the declared families: sign in; sign up; identity providers; email identity; enrollment; account linking; optional cross-product enrollment; session lifecycle; relying-party authorization; device/trust; recovery; consent/policy; auth UX; auth/security email; welcome confirmation; security/failure. Each entry names required checks. Import the catalog to generate an observation checklist; do not maintain a copied list. Additional provider runtime support requires an authoritative AUTH release and explicit UPGRADE; a product agent must not implement or adapt provider code locally.
 
 A product's read-only adapter emits JSON observations, preferably from its tests, against its exact repository revision:
 

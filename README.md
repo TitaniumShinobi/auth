@@ -1,12 +1,16 @@
 # Auth Setup Kit
 
+Canonical architecture: [AUTH durability architecture](docs/AUTH_DURABILITY_ARCHITECTURE.md). It defines the product-local lifecycle, ownership boundaries, transactional SETUP invariants, and intentionally deferred gaps.
+
+Current readiness: transactional SETUP, immutable Git-commit input, locked installation, provenance, operational baseline establishment, read-only VERIFY, version-preserving REPAIR, compatible runtime UPGRADE with rollback, and isolated source-independence proof are implemented. CleanHouse keeps its Python authentication as the sole active authority; the Node runtime remains an inactive candidate.
+
 AUTH's operating contract is **configure once, verify once, operate independently, detect drift, repair only when necessary**. The setup/repair wizard exits after verified handoff; normal product use must not require wizard interaction or recurring orchestration calls. See the [canonical runtime-independence and completion contract](docs/AUTH_WIZARD.md#setup-runtime-independence-and-maintenance), including the distinction between the wizard and explicitly declared identity services.
 
 Desktop integrators: [Reusable desktop OAuth handoff v1](docs/DESKTOP_OAUTH_HANDOFF_V1.md).
 
 Start here: [Human operator guide](docs/AUTH_OPERATOR_HUMAN.md) · [Agent operator guide](docs/AUTH_OPERATOR_AGENT.md) · [Canonical wizard contract](docs/AUTH_WIZARD.md).
 
-`auth/` is the reusable authentication and authorization authority. It owns identity/session lifecycle and standards-shaped CLI/native authorization; consuming products keep their branded login, signup, consent, and account UI.
+`auth/` is the reusable authentication-system source and lifecycle authority. Authorized setup installs a complete product-local authentication runtime; consuming products run that system independently and keep their branded login, signup, consent, and account UI.
 
 See [Enrollment handoff and admission v1](docs/ENROLLMENT_HANDOFF_V1.md) for the server contract and required VVAULT/product integration.
 
@@ -14,17 +18,17 @@ See [Registered-client resource authorization v1](docs/RESOURCE_AUTHORIZATION_V1
 
 ## Canon
 
-`auth/` provides both reusable setup tooling and the shared runtime protocol authority for registered public clients.
+`auth/` provides reusable setup tooling and the canonical source for product-local authentication systems. The canonical durability lifecycle is SETUP, ESTABLISH, deterministic VERIFY during normal development, bounded REPAIR, and authorized UPGRADE / ADVANCE.
 
 The rule is concrete: copy the reusable prompt into a chat with the agentic coder working on the consuming app. Do not ask that agent to figure out auth from scratch.
 
-`auth/` owns the setup source, templates, configuration contract, validation checks, and setup reports.
+`auth/` owns the canonical runtime source, setup templates, configuration contract, validation checks, and setup reports.
 
 Products own visible authentication UI and product routing. `auth/` owns provider integration, auth cookies, authorization codes, access/refresh sessions, client validation, `/api/me`, refresh, revocation, and logout.
 
-`auth/` does not own app startup, app UI, product routing, dashboards, downstream runtime topology, or downstream success claims. Starting the auth API service proves only the auth API service started.
+`auth/` does not own app startup, app UI, product routing, dashboards, downstream runtime topology, or downstream success claims. Starting an installed product-local auth API proves only that auth API started.
 
-The setup operation is one-time; the authorization authority is a runtime dependency for registered CLI/native clients. Products retain their configuration, visible UI, ports, and runtime proof without copying the authorization protocol.
+The setup operation is one-time. It copies the complete authorization protocol and runtime into the product at `.auth-runtime/auth-system/`. The installed product-local authority—not this source checkout—is the runtime dependency for registered browser, CLI, and native clients.
 
 ## Commands
 
@@ -47,7 +51,7 @@ That prompt is the onboarding contract for any consuming repository. The target 
 
 If a browser opens the `auth/` service root (`/`), that is a routing mistake. The root returns `410 auth_frontend_removed` on purpose so the mistake is obvious.
 
-Consuming apps own every visible auth screen. Browser adapters may expose these product-facing API surfaces while delegating identity/session authority to `auth/`:
+Consuming apps own every visible auth screen and expose these product-facing API surfaces through their installed authentication system:
 
 - `GET /api/auth/config`
 - `POST /api/auth/login`
@@ -84,11 +88,11 @@ Fail-closed gate:
 3. Prove local-vs-production session behavior (`/api/me`, provider availability, cookie posture).
 4. Require explicit failure behavior for session or callback gaps before claiming integration success.
 
-It is not owned by any consuming repo. Consuming repos use this repository as the reusable setup authority, then keep their own implementation, app config, origins, OAuth callback URLs, provider settings, consent documents, and session expectations in their own repo/runtime.
+It is not owned by any consuming repo. Consuming repos use this repository as the reusable setup authority, then own the installed runtime plus their app configuration, secrets, origins, OAuth callback registrations, visible UI, routing, deployment, observation, consent documents, and session data.
 
 ## What Auth Is
 
-`auth/` provides a setup model and reusable auth source that can be copied, forked, or adapted into a consuming repo. The target repo should keep the resulting implementation and config locally.
+`auth/` provides AUTH SETUP, which installs the complete authentication runtime into a consuming repository. The target keeps that installed runtime and its configuration locally; agents must not manually recreate, copy, fork, or adapt runtime/provider implementation.
 
 The app config defines the product-facing identity that `auth/` reports through API responses. It does not create or imply an `auth/`-hosted product interface:
 
@@ -172,8 +176,8 @@ If a downstream app needs a runtime-topology contract between sibling services, 
 A consuming app uses `auth/` by:
 
 1. Running `bin/auth setup --repo <target> --app <app> --authorize`.
-2. Reviewing `.auth-kit/auth.config.json`, `.auth-kit/ADAPTER.md`, and `.auth-kit/reports/latest.md` in the target repo.
-3. Copying, adapting, or implementing the auth runtime inside the target repo.
+2. Reviewing `.auth-runtime/auth-system/`, `.auth-kit/auth.config.json`, `.auth-kit/SYSTEM.md`, and `.auth-kit/reports/latest.md` in the target repo.
+3. Building the complete runtime that AUTH SETUP already installed at `.auth-runtime/auth-system/`; do not manually construct or copy runtime/provider code.
 4. Setting provider credentials and callback URLs using the config's OAuth env prefix.
 5. Proving `/api/auth/*`, `/api/me`, refresh, and logout work inside that repo's runtime without this checkout running.
 
@@ -281,7 +285,7 @@ AUTH_COOKIE_NAME=auth_sid
 AUTH_SESSION_SECRET=change-me
 ```
 
-The setup CLI does not read `.env*` files and never prints secret values. If a target repo adapts the runtime service code, that target repo owns its own env loading policy.
+The setup CLI does not read `.env*` files and never prints secret values. The target repository owns the installed runtime's environment-loading policy and secret provisioning.
 
 ```sh
 bin/auth validate --repo ../chatty --app chatty
@@ -339,7 +343,7 @@ POST /api/auth/refresh
 
 Refresh tokens are stored only as `HMAC-SHA256(AUTH_REFRESH_TOKEN_HASH_SECRET, rawRefreshJwt)`. PostgreSQL is the source of truth for refresh-token family state when `AUTH_STORAGE_ADAPTER=postgres` or `DATABASE_URL` is set; Redis is used for OAuth state, cross-origin exchange codes, refresh single-flight locking, and revocation caches.
 
-Logout follows the same ownership boundary as login: consuming apps should initiate logout through their own auth integration, and the target repo's auth implementation clears both canonical auth cookies. Browser consumers can use `GET /api/auth/logout?origin=<allowed-origin>` to clear the session and return to the configured `postLogoutPath`; API clients can use `POST /api/logout` or `POST /api/auth/logout` for JSON logout.
+Logout follows the same ownership boundary as login: consuming apps initiate logout through product-owned UI and routing, and the AUTH-installed runtime clears both canonical auth cookies. Browser consumers can use `GET /api/auth/logout?origin=<allowed-origin>` to clear the session and return to the configured `postLogoutPath`; API clients can use `POST /api/logout` or `POST /api/auth/logout` for JSON logout.
 
 ## Optional PostgREST JWT
 
@@ -366,14 +370,14 @@ This JWT is for direct API/PostgREST access. It does not replace the auth sessio
 
 ## Provider Boundaries
 
-Provider buttons are configured per app, but provider implementation still depends on the target repo carrying or adapting a provider adapter.
+Provider buttons are configured per app. AUTH SETUP installs the supported provider implementations; a consuming product must not carry, recreate, or adapt provider code manually.
 
 Currently supported provider adapters include:
 
 - Google
 - GitHub
 
-If a config lists a provider without an implemented adapter, the target repo must report it unavailable. Microsoft, Apple, and any other provider IDs are not ready merely because they appear in a config; they need implemented provider adapters before they can be treated as available.
+If a config lists a provider unsupported by the installed AUTH release, the target repo must report it unavailable. Microsoft, Apple, and any other unsupported provider IDs require a new authoritative AUTH release and explicit UPGRADE before they can be treated as available; product agents must not implement them locally.
 
 ## Third-Party Project Setup
 
@@ -381,9 +385,9 @@ For an unrelated project:
 
 1. Run `bin/auth setup --repo <path-to-project> --app <app-id> --authorize`.
 2. Review the generated `.auth-kit/` files in the target repo.
-3. Copy, adapt, or implement auth runtime code inside the target repo.
+3. Build the complete runtime installed at `.auth-runtime/auth-system/` and connect the product-owned UI to it.
 4. Add provider credentials using the generated env var names.
-5. Wire the consuming app's `/api/auth/*`, `/api/me`, and logout flow inside that repo's own runtime.
+5. Configure product-owned UI and routing to the installed runtime's `/api/auth/*`, `/api/me`, and logout surfaces.
 6. Run `bin/auth validate --repo <path-to-project> --app <app-id>` and the target repo's own proof commands.
 7. Keep session secrets and provider secrets outside source control.
 

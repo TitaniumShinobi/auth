@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,7 @@ function usage(exitCode = 0) {
     '  auth acceptance --adapter <json> (read-only configured-runtime and live-acceptance report)',
     '  auth conformance --adapter <json> --app <id> --client-id <registered client> --out <new json> [--authority http://localhost:1111]',
     '  auth product <verify|maintain|establish|advance|amend> [approval.json] --repo <path>',
+    '  auth runtime <verify|establish|repair|upgrade|recover> --repo <path> --app <id> [--target-revision <commit>] [--authorize]',
     '  auth setup --config <product-config.json> --inputs <input-paths.json> --adapter <observer.mjs> --repo <path> --app <id> --authorize',
     '  auth setup --repo <path> --app <chatty|cleanhouse|code|vvault> [--dry-run | --authorize]',
     '  auth validate --repo <path> --app <chatty|cleanhouse|code|vvault>',
@@ -39,7 +40,9 @@ function usage(exitCode = 0) {
     '              [--repo <path>] [--outcome <description>] [--capability <id>] [--authority-evidence <json> --authority-sha256 <trusted digest>]',
     '',
     'Rules:',
-    '  setup copies source-kit files into the target repo and writes a report.',
+    '  setup installs the complete product-local authentication runtime and durability kit.',
+    '  products supply only configuration, secrets, UI, routing, deployment, and observation.',
+    '  never manually recreate, copy, adapt, or carry runtime/provider implementation.',
     '  validate is read-only and reports missing setup evidence.',
     '  wizard defaults to VERIFY and evaluates any product adapter without modifying it.',
     '  setup writes require explicit --authorize; wizard ACT has no supported repair.',
@@ -428,11 +431,10 @@ async function setup(args) {
   }
   const { config } = args.config ? { config: await readJson(path.resolve(args.config)) } : await loadAppConfig(args.app);
   if (config.app?.id !== args.app) throw new Error('Product configuration identity mismatch');
-  const kitDir = path.join(repoPath, '.auth-kit');
-  const reportDir = path.join(kitDir, 'reports');
   const changedFiles = [
+    '.auth-runtime/auth-system/',
     '.auth-kit/auth.config.json',
-    '.auth-kit/ADAPTER.md',
+    '.auth-kit/SYSTEM.md',
     '.auth-kit/reports/latest.md',
     '.auth-kit/contract.json', '.auth-kit/observe.mjs', '.auth-kit/verify.mjs', '.auth-kit/ci.mjs',
     '.auth-kit/provenance.json', '.auth-kit/runtime/', '.auth-kit/history/', '.auth-kit/baseline/',
@@ -441,14 +443,24 @@ async function setup(args) {
   const report = setupReport({ app: args.app, repoPath, config, changedFiles });
 
   if (!args.dryRun) {
-    const { installProductBundle } = await import('./auth-product-contract.mjs');
-    await installProductBundle(repoPath, { authorized: args.authorize, productId: args.app, adapterSource: args.adapter ? path.resolve(args.adapter) : undefined,
+    const { installInitialSetupTransaction } = await import('./auth-setup-transaction.mjs');
+    const inputs = args.inputs ? await readJson(path.resolve(args.inputs)) : {
+      artifact: ['.auth-runtime/auth-system/src/index.ts'],
+      configuration: ['.auth-runtime/auth-system/AUTH-RUNTIME-MANIFEST.json', '.auth-runtime/auth-system/config/example-app.json'],
+    };
+    await installInitialSetupTransaction(repoPath, {
+      authorized: args.authorize,
+      sourceRoot: repoRoot,
+      productId: args.app,
+      config,
+      adapterSource: args.adapter ? path.resolve(args.adapter) : undefined,
       gateSource: args.gate ? path.resolve(args.gate) : undefined,
-      inputs: args.inputs ? await readJson(path.resolve(args.inputs)) : undefined, profile: args.profile });
-    await mkdir(reportDir, { recursive: true });
-    await writeFile(path.join(kitDir, 'auth.config.json'), setupConfigPayload({ app: args.app, config }), 'utf8');
-    await copyFile(path.join(repoRoot, 'templates', 'auth-adapter', 'ADAPTER.md'), path.join(kitDir, 'ADAPTER.md'));
-    await writeFile(path.join(reportDir, 'latest.md'), report, 'utf8');
+      inputs,
+      profile: args.profile,
+      authConfig: setupConfigPayload({ app: args.app, config }),
+      systemInstructions: await readFile(path.join(repoRoot, 'templates', 'auth-adapter', 'ADAPTER.md'), 'utf8'),
+      report,
+    });
   }
 
   console.log(report);
@@ -532,11 +544,17 @@ async function validate(args) {
   if (!repoExists) blockers.push(`Target repo does not exist: ${repoPath}`);
 
   const kitDir = path.join(repoPath, '.auth-kit');
-  for (const relativePath of ['.auth-kit/auth.config.json', '.auth-kit/ADAPTER.md', '.auth-kit/reports/latest.md']) {
+  for (const relativePath of ['.auth-kit/auth.config.json', '.auth-kit/reports/latest.md']) {
     const exists = repoExists && await pathExists(path.join(repoPath, relativePath));
     checks.push([relativePath, exists]);
     if (!exists) blockers.push(`Missing ${relativePath}; run auth setup first.`);
   }
+  const systemInstructionsExist = repoExists && (
+    await pathExists(path.join(repoPath, '.auth-kit/SYSTEM.md'))
+    || await pathExists(path.join(repoPath, '.auth-kit/ADAPTER.md'))
+  );
+  checks.push(['.auth-kit/SYSTEM.md', systemInstructionsExist]);
+  if (!systemInstructionsExist) blockers.push('Missing .auth-kit/SYSTEM.md; run auth setup first.');
 
   try {
     const { inspectProductBundle } = await import('./auth-product-contract.mjs');
@@ -546,6 +564,14 @@ async function validate(args) {
   } catch {
     checks.push(['durable contract integrity', false]);
     blockers.push('Durable AUTH bundle missing or invalid; use auth product verify for the precise blocker.');
+  }
+  try {
+    const { inspectProductAuthRuntime } = await import('./auth-runtime-installer.mjs');
+    await inspectProductAuthRuntime(repoPath, args.app);
+    checks.push(['complete product-local auth runtime integrity', true]);
+  } catch (error) {
+    checks.push(['complete product-local auth runtime integrity', false]);
+    blockers.push(`Product-local AUTH runtime missing or invalid: ${error instanceof Error ? error.message : 'unknown error'}`);
   }
   const providerCount = enabledProviders(config).length;
   checks.push(['at least one enabled provider in source config', providerCount > 0]);
@@ -579,7 +605,25 @@ async function validate(args) {
 
 try {
   const argv = process.argv.slice(2);
-  if (argv[0] === 'product') {
+  if (argv[0] === 'runtime') {
+    const operation = argv[1];
+    const value = (flag) => { const index = argv.indexOf(flag); return index >= 0 ? argv[index + 1] : undefined; };
+    const root = value('--repo'), productId = value('--app'), targetRevision = value('--target-revision');
+    if (!root || !productId || !['verify', 'establish', 'repair', 'upgrade', 'recover'].includes(operation)) throw new Error('auth runtime <verify|establish|repair|upgrade|recover> --repo <path> --app <id>');
+    const authorized = argv.includes('--authorize');
+    const lifecycle = await import('./auth-runtime-lifecycle.mjs');
+    const runtimeAcceptance = process.env.AUTH_RUNTIME_TEST_MODE === '1' && process.env.AUTH_RUNTIME_TEST_ACCEPTANCE === '1'
+      ? async () => ({ verification: 'PASS', checks: ['crash-fixture'] })
+      : lifecycle.acceptRuntimeOperational;
+    let result;
+    if (operation === 'verify') result = await lifecycle.verifyRuntimeLifecycle(path.resolve(root), productId);
+    else if (operation === 'establish') result = await lifecycle.establishRuntimeBaseline(path.resolve(root), productId, { authorized, acceptance: runtimeAcceptance });
+    else if (operation === 'repair') result = await lifecycle.repairRuntime(path.resolve(root), productId, { authorized, sourceRoot: repoRoot, acceptance: runtimeAcceptance });
+    else if (operation === 'upgrade') result = await lifecycle.upgradeRuntime(path.resolve(root), productId, { authorized, sourceRoot: repoRoot, targetRevision, acceptance: runtimeAcceptance });
+    else result = await lifecycle.recoverRuntimeLifecycle(path.resolve(root));
+    console.log(JSON.stringify(result, null, 2));
+    if (result.verification === 'FAIL') process.exitCode = 2;
+  } else if (argv[0] === 'product') {
     const index = argv.indexOf('--repo');
     if (index < 2 || !argv[index + 1]) throw new Error('auth product <verify|maintain|establish|advance|amend> [approval.json] --repo <product>');
     const root = path.resolve(argv[index + 1]);

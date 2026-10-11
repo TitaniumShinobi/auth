@@ -1,6 +1,8 @@
 # Durable product authentication contract — v1
 
-AUTH's setup wizard installs a development-time contract. It never becomes a normal application request dependency. This layer wraps the existing capability evaluator; it does not change provider, session, enrollment, storage or VVAULT runtime behavior.
+The canonical lifecycle and ownership model is [AUTH durability architecture](AUTH_DURABILITY_ARCHITECTURE.md).
+
+AUTH SETUP installs both a complete product-local authentication system and this development-time durability contract. Neither the setup wizard nor the source AUTH checkout becomes a normal application request dependency. This contract wraps the existing capability evaluator; it does not replace the installed provider, session, enrollment, or storage runtime behavior.
 
 ## Install, observe, establish
 
@@ -36,7 +38,7 @@ Canonical installed files:
 | `.auth-kit/history/000001.json`, etc. | Append-only, hash-linked establishment/advancement/amendment events |
 | `.auth-kit/reports/<run-uuid>.json` | Durable verification outcomes, including failures where bundle remains accessible |
 | `.github/workflows/auth-product-contract.yml` | Generated gate; required contents are hashed |
-| `.auth-kit/auth.config.json`, `ADAPTER.md`, `reports/latest.md` | Existing setup configuration/instructions/report; not substitutes for a baseline |
+| `.auth-kit/auth.config.json`, `SYSTEM.md`, `reports/latest.md` | Installed-system configuration/instructions/report; not substitutes for a baseline |
 
 The collector reads a JSON context from stdin containing `productId`, `revision`, `commit`, `artifactDigest`, `configurationDigest`, `observedAt`, and `runId`. Return JSON `{binding, adapter, independence}`. `binding` must echo the exact context. `adapter` uses the existing schemaVersion 1 capability format, with matching productId/revision. It must actually gather evidence; echoing context is necessary, not proof that observations are truthful. The revision digest binds Git HEAD and current tracked/unignored product files, including dirty changes; `.auth-kit` is excluded because verification reports/history necessarily change. Artifact/configuration contents are hashed separately, including ignored build outputs. Changes during collection fail verification. Submodule/symlink source trees require a supported explicit integration; they do not silently pass.
 
@@ -109,4 +111,4 @@ The CLI supports trusted external verification and checkpoint comparison. AUTH d
 
 ## Distribution boundary
 
-Source/development retains the full kit, provenance, history and build gate. Packages ship only their required authentication runtime/adapters/configuration and secure user-session storage. They need not ship this wizard, development secrets, reports or baselines. A stopped wizard is not permission to disable an independently required identity authority or session security check. Real product independence must be demonstrated by its collector and live acceptance, separately from AUTH's synthetic tests.
+Source/development retains the canonical installer and lifecycle implementation. Consuming products retain their installed authentication runtime, configuration, durability contract, provenance, history, and build gate. They do not ship the setup wizard or development secrets as runtime dependencies. A stopped wizard is not permission to disable an independently required identity authority or session security check. Real product independence must be demonstrated by its collector and live acceptance, separately from AUTH's synthetic tests.

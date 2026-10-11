@@ -200,11 +200,10 @@ async function saveReport(root,report) {
   await writeFile(path.join(dir,`${randomUUID()}.json`),json(report),{flag:'wx'});
 }
 export async function verifyProduct(root,options={}) {
-  try {const state=await inspectProductBundle(root,options);const report=await assess(state);await saveReport(root,report);return report;}
+  try {const state=await inspectProductBundle(root,options);return await assess(state);}
   catch(e){const status=e.code==='CONTRACT_MIGRATION_REQUIRED'?'INDETERMINATE':'FAIL';const report={verification:status,durability_verification:status,error:e.code && /^[A-Z_]+$/.test(e.code)?e.code:'BUNDLE_INVALID',capabilities:[]};report.blockerHandoffs=createBlockerHandoffs(report,{repository:root});
     if(e.code==='CONTRACT_MIGRATION_REQUIRED') report.blockerHandoffs=report.blockerHandoffs.map(h=>({...h,nextOwner:'AUTH DEVELOPMENT',reasonCode:e.code,resumeCondition:'Supported contract schema migration',instruction:'STOP; preserve the existing contract and history.'}));
-    // Do not recreate a deleted bundle merely to write a report.
-    try{await safeFile(root,`${kit}/contract.json`);await saveReport(root,report);}catch{}return report;}
+    return report;}
 }
 export async function advanceProduct(root,authorization,{checkpoint}={}) {
   const state=await inspectProductBundle(root,{checkpoint});

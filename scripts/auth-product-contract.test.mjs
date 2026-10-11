@@ -46,8 +46,10 @@ test('setup installs complete generic bundle; first VERIFY cannot claim establis
 },{established:false}));
 
 test('installed command uses baseline automatically without AUTH checkout/runtime service',()=>fixture(async({root})=>{
+ const reportsBefore=await readdir(path.join(root,'.auth-kit/reports'));
  const r=spawnSync(process.execPath,['.auth-kit/verify.mjs','verify'],{cwd:root,encoding:'utf8',env:{PATH:process.env.PATH}});
  assert.equal(r.status,0,r.stderr);assert.equal(JSON.parse(r.stdout).verification,'PASS');
+ assert.deepEqual(await readdir(path.join(root,'.auth-kit/reports')),reportsBefore);
  const omit=spawnSync(process.execPath,['.auth-kit/verify.mjs','verify','--no-baseline'],{cwd:root,encoding:'utf8'});
  assert.notEqual(omit.status,0);
 }));

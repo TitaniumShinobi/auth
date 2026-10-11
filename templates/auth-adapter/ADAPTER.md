@@ -1,10 +1,10 @@
-# Auth Adapter Kit
+# Product-local Authentication System
 
-This directory is generated from the shared `auth/` source kit.
+This lifecycle directory accompanies the complete authentication runtime installed at `.auth-runtime/auth-system/` from the shared `auth/` source kit.
 
 Rules:
 
-- This repository owns auth after setup.
+- This repository owns and runs the complete installed authentication system after setup.
 - Do not depend on the shared `auth/` checkout as a forever runtime hub.
 - Keep visible login, signup, consent, account, and logout UI in this repository.
 - Keep secret values out of source control and out of reports.
