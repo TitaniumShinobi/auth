@@ -1,7 +1,7 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
-import { SignJWT, jwtVerify } from 'jose';
+import { createRemoteJWKSet, SignJWT, jwtVerify } from 'jose';
 
 const required = (name: string) => { const value = process.env[name]?.trim(); if (!value) throw new Error(`MISSING_${name}`); return value; };
 const origin = new URL(required('AUTH_ISSUER')).origin;
@@ -17,7 +17,7 @@ const cookieName = process.env.AUTH_COOKIE_NAME || '__Host-auth_session';
 const cookie = (value: string, maxAge: number) => `${cookieName}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 const cookies = (header?: string) => Object.fromEntries((header || '').split(';').map(item => item.trim().split('=')).filter(pair => pair.length === 2));
 const clients = () => JSON.parse(process.env.AUTH_CLIENTS_JSON || '{}') as Record<string, { redirectUris: string[]; scopes: string[] }>;
-const providers = () => JSON.parse(process.env.AUTH_PROVIDERS_JSON || '{}') as Record<string, { authorizationEndpoint: string; tokenEndpoint: string; userinfoEndpoint: string; clientId: string; clientSecret: string; scopes: string[] }>;
+const providers = () => JSON.parse(process.env.AUTH_PROVIDERS_JSON || '{}') as Record<string, { issuer: string; authorizationEndpoint: string; tokenEndpoint: string; userinfoEndpoint: string; jwksUri: string; clientId: string; clientSecret: string; scopes: string[] }>;
 const passwordHash = (password: string, salt = randomBytes(16).toString('hex')) => `${salt}:${scryptSync(password, salt, 32).toString('hex')}`;
 const passwordValid = (password: string, stored: string) => { const [salt, expected] = stored.split(':'); if (!salt || !expected) return false; const actual = scryptSync(password, salt, 32); return actual.length === expected.length / 2 && timingSafeEqual(actual, Buffer.from(expected, 'hex')); };
 const accessToken = (sub: string, audience: string, scope: string, sessionId: string) => new SignJWT({ scope, sid: sessionId }).setProtectedHeader({ alg: 'HS256' }).setIssuer(origin).setAudience(audience).setSubject(sub).setIssuedAt().setExpirationTime('10m').setJti(opaque()).sign(secret);
@@ -58,6 +58,36 @@ app.get('/api/auth/magic/verify', async (req, res) => {
   if (!challenge || challenge.usedAt || challenge.expiresAt <= new Date()) return res.status(400).json({ error: 'invalid_or_expired_magic_link' });
   const updated = await prisma.magicChallenge.updateMany({ where: { id: challenge.id, usedAt: null }, data: { usedAt: new Date() } }); if (updated.count !== 1) return res.status(409).json({ error: 'magic_link_replayed' });
   const user = await prisma.user.upsert({ where: { email: challenge.email }, update: {}, create: { email: challenge.email } }); const s = await createSession(user.id); res.setHeader('Set-Cookie', cookie(s.id, 2592000)).redirect(303, origin);
+});
+
+app.get('/api/auth/provider/:provider/start', async (req, res) => {
+  const provider = providers()[req.params.provider]; if (!provider) return res.status(404).json({ error: 'provider_not_configured' });
+  const state = opaque(), nonce = opaque(), returnTo = safeReturn(req.query.return_to);
+  await prisma.oAuthState.create({ data: { digest: digest(state), provider: req.params.provider, nonce, returnTo, expiresAt: new Date(Date.now() + 10 * 60000) } });
+  const target = new URL(provider.authorizationEndpoint); target.searchParams.set('response_type', 'code'); target.searchParams.set('client_id', provider.clientId); target.searchParams.set('redirect_uri', `${origin}/api/auth/provider/${encodeURIComponent(req.params.provider)}/callback`); target.searchParams.set('scope', provider.scopes.join(' ')); target.searchParams.set('state', state); target.searchParams.set('nonce', nonce); res.redirect(303, target.href);
+});
+app.get('/api/auth/provider/:provider/callback', async (req, res) => {
+  const provider = providers()[req.params.provider], stateValue = String(req.query.state || ''), code = String(req.query.code || '');
+  const state = await prisma.oAuthState.findUnique({ where: { digest: digest(stateValue) } });
+  if (!provider || !state || state.provider !== req.params.provider || state.usedAt || state.expiresAt <= new Date() || !code) return res.status(400).json({ error: 'invalid_oauth_callback' });
+  if ((await prisma.oAuthState.updateMany({ where: { id: state.id, usedAt: null }, data: { usedAt: new Date() } })).count !== 1) return res.status(409).json({ error: 'oauth_callback_replayed' });
+  const tokenResponse = await fetch(provider.tokenEndpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: `${origin}/api/auth/provider/${encodeURIComponent(req.params.provider)}/callback`, client_id: provider.clientId, client_secret: provider.clientSecret }) });
+  if (!tokenResponse.ok) return res.status(502).json({ error: 'provider_exchange_failed' });
+  const tokens = await tokenResponse.json() as { access_token?: string; id_token?: string };
+  let claims: Record<string, unknown>;
+  if (tokens.id_token) {
+    const verified = await jwtVerify(tokens.id_token, createRemoteJWKSet(new URL(provider.jwksUri)), { issuer: provider.issuer, audience: provider.clientId }); claims = verified.payload;
+    if (claims.nonce !== state.nonce) return res.status(400).json({ error: 'provider_nonce_mismatch' });
+  } else {
+    if (!tokens.access_token) return res.status(502).json({ error: 'provider_token_missing' });
+    const info = await fetch(provider.userinfoEndpoint, { headers: { authorization: `Bearer ${tokens.access_token}`, accept: 'application/json' } }); if (!info.ok) return res.status(502).json({ error: 'provider_profile_failed' }); claims = await info.json() as Record<string, unknown>;
+  }
+  const subject = String(claims.sub || ''), email = String(claims.email || '').trim().toLowerCase();
+  if (!subject || !/^\S+@\S+\.\S+$/.test(email) || claims.email_verified !== true) return res.status(400).json({ error: 'provider_identity_unverified' });
+  let link = await prisma.providerIdentity.findUnique({ where: { provider_subject: { provider: req.params.provider, subject } } });
+  let user = link ? await prisma.user.findUnique({ where: { id: link.userId } }) : null;
+  if (!user) { user = await prisma.user.upsert({ where: { email }, update: {}, create: { email, name: String(claims.name || '').trim() || null } }); link = await prisma.providerIdentity.create({ data: { provider: req.params.provider, subject, userId: user.id } }); }
+  const s = await createSession(user.id); res.setHeader('Set-Cookie', cookie(s.id, 2592000)).redirect(303, state.returnTo);
 });
 
 app.get('/oauth/authorize', async (req, res) => {
