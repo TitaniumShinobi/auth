@@ -4,13 +4,11 @@ This record distinguishes committed clean-checkout evidence from the hazardous w
 
 ## Final post-removal clean checkout
 
-A local `--no-local` clone of the commit was installed with `npm ci`. Because npm's script policy did not run Prisma's generator during install, the required sequence was explicit:
+A local `--no-local` clone of the commit was installed with `npm ci`. Repository verification used the committed default contract:
 
 ```text
 npm ci
-npm run prisma:generate
-npm run build
-bin/node20 --test dist/test/auth.test.js dist/test/oauth.test.js dist/test/desktopCallbackFailure.test.js dist/test/authorizationCode.test.js dist/test/startup.test.js
+npm test
 ```
 
 Results in a local `--no-local` clone: locked install succeeded; native durability passed 11/11; committed standards passed 50/50; CLI/wizard passed 8/8; and syntax/build validation passed. The clone was clean before generated dependency installation.
@@ -27,4 +25,4 @@ From that final clone, the wizard generated and verified an empty product. The s
 
 Inside the restricted command sandbox, a minimal Node `net.createServer()` bind to `127.0.0.1` failed with `EPERM`. The identical loopback-only probe succeeded outside that restriction on an ephemeral port. With the same narrowly elevated loopback permission, all 46 runtime/startup tests passed. This proves the earlier listener failures were caused by the sandbox boundary, while the unrestricted focused runtime result supplies the previously missing executable evidence.
 
-Product-neutrality, existing-auth alignment, migration rollback, and superseded-machinery removal now have focused executable coverage. Public tracked-source disposition, history sensitivity, legal metadata, and final release authorization remain separate gates.
+Product-neutrality, existing-auth alignment, migration rollback, superseded-machinery removal, licensing, and public tracked-source disposition have focused evidence. The conditional historical-data finding, public security contact, repository visibility, and final release authorization remain owner-controlled release decisions.
