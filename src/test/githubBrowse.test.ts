@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
@@ -731,6 +732,23 @@ test('sqlite storage migration adds persisted github connection columns', async 
     await rm(dbPath, { force: true }).catch(() => undefined);
     await rm(`${dbPath}-shm`, { force: true }).catch(() => undefined);
     await rm(`${dbPath}-wal`, { force: true }).catch(() => undefined);
+  }
+});
+
+test('sqlite startup creates a missing configured parent directory', async () => {
+  const root = path.join(
+    os.tmpdir(),
+    `auth-missing-parent-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
+  const parent = path.join(root, 'opt', 'auth', 'data');
+  const dbPath = path.join(parent, 'auth.sqlite');
+  try {
+    assert.equal(existsSync(parent), false);
+    await new SqliteStorageAdapter(dbPath).initialize();
+    assert.equal(existsSync(parent), true);
+    assert.equal(existsSync(dbPath), true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
