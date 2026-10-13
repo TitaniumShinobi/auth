@@ -1,12 +1,10 @@
-![AUTH](docs/assets/auth-banner.png)
+![auth](docs/assets/auth-banner.png)
 
-# AUTH
+auth is a transient authentication-engineering wizard. It discovers and assesses a consuming product, creates or aligns target-native authentication through an exact reviewed plan, verifies the result, emits an operator-selected secret-free receipt, and exits.
 
-AUTH is a transient authentication-engineering wizard. It discovers and assesses a consuming product, creates or aligns target-native authentication through an exact reviewed plan, verifies the result, emits an operator-selected secret-free receipt, and exits.
+Canonical architecture: [auth transient wizard architecture](docs/AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md). Public acceptance gates: [auth public-production rubric](docs/AUTH_PUBLIC_PRODUCTION_RUBRIC.md).
 
-Canonical architecture: [AUTH transient wizard architecture](docs/AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md). Public acceptance gates: [AUTH public-production rubric](docs/AUTH_PUBLIC_PRODUCTION_RUBRIC.md).
-
-AUTH leaves no `.auth-runtime`, `.auth-kit`, adapter, daemon, shadow service, copied AUTH package, lifecycle control plane, installed AUTH workflow, or continuing dependency on this repository. The consuming product owns its resulting authentication source, configuration and persistence schemas, migrations, tests, standards contracts, CI, secrets, identities, sessions, and data.
+auth leaves no `.auth-runtime`, `.auth-kit`, adapter, daemon, shadow service, copied AUTH package, lifecycle control plane, installed AUTH workflow, or continuing dependency on this repository. The consuming product owns its resulting authentication source, configuration and persistence schemas, migrations, tests, standards contracts, CI, secrets, identities, sessions, and data.
 
 ## Native workflow
 
@@ -26,13 +24,13 @@ For existing authentication, use `native align-plan` after `assess`. Alignment c
 
 ## First profile
 
-The first public profile is TypeScript, Node.js, Express, and Prisma. AUTH installs the reviewed product-neutral profile under ordinary product paths. The product then supplies configuration, secret values, visible UI, external routing/TLS, deployment, monitoring, provider registration, delivery infrastructure, and product-owned MCP tools. See [profile contract](docs/AUTH_TYPESCRIPT_NATIVE_PROFILE.md).
+The first public profile is TypeScript, Node.js, Express, and Prisma. auth installs the reviewed product-neutral profile under ordinary product paths. The product then supplies configuration, secret values, visible UI, external routing/TLS, deployment, monitoring, provider registration, delivery infrastructure, and product-owned MCP tools. See [profile contract](docs/AUTH_TYPESCRIPT_NATIVE_PROFILE.md).
 
 The profile covers credentials, generic OAuth/OIDC providers, authorization code with S256 PKCE, state/nonce/callback validation, magic email, hardened cookies and sessions, access and rotating refresh tokens, replay-family revocation, logout, Prisma persistence, native/CLI clients, and an OAuth-protected MCP resource boundary.
 
 ## Agent boundary
 
-Agents run AUTH and follow its machine classification. They may implement only the exact product-native UI, routing, configuration, deployment, observation, or reviewed integration seam named by `AGENT_INTEGRATION_REQUIRED`. They must not recreate authentication architecture. Registered bounded ACT handlers remain preferred. Credentials, provider registration, legal choices, irreversible migrations, and release approval remain owner-controlled.
+Agents run auth and follow its machine classification. They may implement only the exact product-native UI, routing, configuration, deployment, observation, or reviewed integration seam named by `AGENT_INTEGRATION_REQUIRED`. They must not recreate authentication architecture. Registered bounded ACT handlers remain preferred. Credentials, provider registration, legal choices, irreversible migrations, and release approval remain owner-controlled.
 
 ## Security and limitations
 
