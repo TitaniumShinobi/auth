@@ -1,3 +1,5 @@
+![AUTH](docs/assets/auth-banner.png)
+
 # AUTH
 
 AUTH is a transient authentication-engineering wizard. It discovers and assesses a consuming product, creates or aligns target-native authentication through an exact reviewed plan, verifies the result, emits an operator-selected secret-free receipt, and exits.
