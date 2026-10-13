@@ -6,12 +6,10 @@ Security fixes are prepared for the current release line described in [the compa
 
 ## Reporting a vulnerability
 
-Public security contact: `OWNER_SECURITY_CONTACT_REQUIRED`.
-
-The repository owner must replace that placeholder before public release. Until then, do not publish exploit details or credentials in an issue. Use GitHub's private vulnerability-reporting interface if the repository owner has enabled it; otherwise the missing contact is an explicit release blocker in [the human-action ledger](docs/HUMAN_ACTION_LEDGER.md).
+Report suspected vulnerabilities through GitHub's private vulnerability-reporting interface or the private [auth Request Intake](https://docs.google.com/forms/d/e/1FAIpQLSedgkIPwkanca6XJjb1iL2dI3rOm-4bTNF3dEXaoiT9UHXwAw/viewform). Do not publish exploit details or credentials in a public issue.
 
 Reports should include affected version/commit, impact, minimal reproduction, and suggested containment. Never include real tokens, cookies, provider secrets, identity databases, or user data.
 
 ## Security boundary
 
-AUTH owns its wizard, reviewed native profiles, standards schemas, planning, transaction/recovery rules, and verification semantics. A consuming product owns the generated or aligned authentication source, configuration, persistence, tests, secrets, identities, sessions, and data. AUTH leaves no runtime service or control plane. Power-loss durability and irreversible/incompatible migrations are not supported guarantees.
+auth owns its wizard, reviewed native profiles, standards schemas, planning, transaction/recovery rules, and verification semantics. A consuming product owns the generated or aligned authentication source, configuration, persistence, tests, secrets, identities, sessions, and data. auth leaves no runtime service or control plane. Power-loss durability and irreversible/incompatible migrations are not supported guarantees.

@@ -4,7 +4,7 @@ auth is a transient authentication-engineering wizard. It discovers and assesses
 
 Canonical architecture: [auth transient wizard architecture](docs/AUTH_TRANSIENT_WIZARD_ARCHITECTURE.md). Public acceptance gates: [auth public-production rubric](docs/AUTH_PUBLIC_PRODUCTION_RUBRIC.md).
 
-auth leaves no `.auth-runtime`, `.auth-kit`, adapter, daemon, shadow service, copied AUTH package, lifecycle control plane, installed AUTH workflow, or continuing dependency on this repository. The consuming product owns its resulting authentication source, configuration and persistence schemas, migrations, tests, standards contracts, CI, secrets, identities, sessions, and data.
+auth leaves no `.auth-runtime`, `.auth-kit`, adapter, daemon, shadow service, copied auth package, lifecycle control plane, installed auth workflow, or continuing dependency on this repository. The consuming product owns its resulting authentication source, configuration and persistence schemas, migrations, tests, standards contracts, CI, secrets, identities, sessions, and data.
 
 ## Native workflow
 
@@ -38,4 +38,8 @@ Plans and receipts contain digests and non-secret configuration shape, never sec
 
 Power-loss/fsync durability and irreversible datasource/schema migration are not claimed. Current release status and remaining executable gates are recorded in [public-release readiness](docs/PUBLIC_RELEASE_READINESS.md).
 
-Security vulnerabilities must follow [SECURITY.md](SECURITY.md). Contribution and support boundaries are documented in [CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md).
+## Requests and support
+
+Submit bug reports, compatibility requests, suggestions, support questions, and security concerns through the private [auth Request Intake](https://docs.google.com/forms/d/e/1FAIpQLSedgkIPwkanca6XJjb1iL2dI3rOm-4bTNF3dEXaoiT9UHXwAw/viewform). Security vulnerabilities may also be reported through GitHub's private vulnerability-reporting interface. Do not include credentials, tokens, cookies, private keys, identity databases, or user data.
+
+Security handling is defined in [SECURITY.md](SECURITY.md). Contribution and support boundaries are documented in [CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md).
