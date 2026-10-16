@@ -87,6 +87,24 @@ test('existing authentication is assessed and aligned without overwriting produc
   } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
 });
 
+test('Python Flask SQLite authentication is recognized without installing AUTH artifacts', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-python-'));
+  try {
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(path.join(root, 'backend', 'api'), { recursive: true });
+    await mkdir(path.join(root, 'models'), { recursive: true });
+    await writeFile(path.join(root, 'requirements.txt'), 'flask>=3\nbcrypt>=4\n');
+    await writeFile(path.join(root, 'backend', 'api', 'auth.py'), '# oauth authorization_code code_challenge code_verifier S256 state nonce password_hash magic email HttpOnly refresh rotation replay revoke logout loopback\n');
+    await writeFile(path.join(root, 'models', 'database.py'), 'import sqlite3\n# CREATE TABLE User\n');
+    const discovery = await discoverNativeTarget(root);
+    assert.deepEqual(discovery.stack, { language: 'python', runtime: 'python', framework: 'flask', persistence: 'sqlite', express: false, prisma: false });
+    assert.equal(discovery.classification, 'COMPATIBLE');
+    const assessment = await assessNativeTarget(root);
+    assert.equal(assessment.executionClassification, 'AGENT_INTEGRATION_REQUIRED');
+    assert.deepEqual(assessment.prohibitedPersistentArtifacts, []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('VERIFY detects tamper and REPAIR restores authenticated bytes without changing versions', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'auth-native-verify-'));
   const receipt = path.join(os.tmpdir(), `auth-native-verify-receipt-${Date.now()}.json`);

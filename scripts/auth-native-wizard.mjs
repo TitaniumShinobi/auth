@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, stat, wri
 import path from 'node:path';
 
 export const NATIVE_PROFILE = 'typescript-node-express-prisma/2';
+export const PYTHON_FLASK_SQLITE_PROFILE = 'python-flask-sqlite/1';
 export const RECEIPT_SCHEMA = 'life.auth.receipt/1';
 const TX_PREFIX = '.auth-native-transaction-';
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
@@ -94,7 +95,7 @@ function profileBytes(sourceRoot, revision, sourcePath) {
 }
 
 async function targetInventory(root) {
-  const candidates = ['package.json', 'package-lock.json', 'tsconfig.json', 'src', 'prisma/schema.prisma'];
+  const candidates = ['package.json', 'package-lock.json', 'tsconfig.json', 'src', 'prisma/schema.prisma', 'requirements.txt', 'requirements-core.txt', 'pyproject.toml', 'backend', 'models'];
   const result = {};
   for (const relative of candidates) {
     const entry = await exists(path.join(root, relative));
@@ -104,7 +105,7 @@ async function targetInventory(root) {
 }
 
 async function boundedAuthEvidence(root) {
-  const candidates = ['src/auth', 'src/index.ts', 'src/app.ts', 'src/routes/auth.ts', 'server/auth', 'app/api/auth', 'prisma/schema.prisma'];
+  const candidates = ['src/auth', 'src/index.ts', 'src/app.ts', 'src/routes/auth.ts', 'server/auth', 'app/api/auth', 'prisma/schema.prisma', 'backend/api/auth.py', 'backend/server.py', 'models/user_model.py', 'models/database.py'];
   const found = [];
   for (const relative of candidates) if (await exists(path.join(root, relative))) found.push(relative);
   return found;
@@ -114,23 +115,33 @@ const ALIGNMENT_PROBES = Object.freeze([
   ['oauth-oidc', /oauth|openid|authorization[_ -]?code/i, ['OAuth/OIDC authorization and callback evidence']],
   ['pkce', /code_challenge|code_verifier|S256/, ['S256 PKCE evidence']],
   ['state-nonce-callback-validation', /\bstate\b[\s\S]{0,300}\bnonce\b|nonce[\s\S]{0,300}state/i, ['state and nonce validation evidence']],
-  ['credentials', /passwordHash|scrypt|argon2|bcrypt/i, ['password hashing evidence']],
+  ['credentials', /password_?hash|passwordHash|scrypt|argon2|bcrypt/i, ['password hashing evidence']],
   ['magic-email', /magic.{0,20}(link|email|challenge|token)/i, ['single-use expiring magic-email evidence']],
-  ['sessions-secure-cookies', /HttpOnly|httpOnly/i, ['HttpOnly session cookie evidence']],
+  ['sessions-secure-cookies', /HttpOnly|httpOnly|SESSION_COOKIE_HTTPONLY/i, ['HttpOnly session cookie evidence']],
   ['refresh-rotation-replay-protection', /refresh.{0,80}(rotate|rotation|replay|usedAt)/i, ['refresh rotation and replay evidence']],
   ['revocation-logout', /revoke|revocation|logout/i, ['server revocation and logout evidence']],
-  ['prisma-persistence', /PrismaClient|schema\.prisma|model\s+User/i, ['Prisma persistence evidence']],
+  ['product-native-persistence', /PrismaClient|schema\.prisma|model\s+User|sqlite3|CREATE TABLE|identity\/auth\.json/i, ['product-native persistence evidence']],
   ['native-cli-authorization', /127\.0\.0\.1|localhost|loopback|code_verifier/i, ['native/CLI redirect binding evidence']],
   ['mcp-resource-server', /oauth-protected-resource|resource_metadata|\bmcp\b/i, ['MCP protected-resource authorization evidence']],
 ]);
+const PYTHON_ALIGNMENT_PROBES = Object.freeze([
+  ['oauth-authorization-code', /oauth|authorization[_ -]?code/i, ['OAuth authorization and callback evidence']],
+  ['pkce', /code_challenge|code_verifier|S256/, ['S256 PKCE evidence']],
+  ['session-bound-expiring-state', /oauth_states[\s\S]{0,600}(created_at|expires)|created_at[\s\S]{0,600}oauth_states/i, ['session-bound expiring state evidence']],
+  ['credentials', /password_?hash|bcrypt/i, ['password hashing evidence']],
+  ['account-recovery', /recovery_tokens|consume_recovery|issue_recovery/i, ['single-use expiring recovery evidence']],
+  ['server-sessions-secure-cookies', /SESSION_COOKIE_HTTPONLY|httponly/i, ['HttpOnly server-session evidence']],
+  ['revocation-logout', /session\.clear|logout|revok/i, ['complete logout evidence']],
+  ['product-native-persistence', /sqlite3|CREATE TABLE|identity\/auth\.json/i, ['product-native persistence evidence']],
+]);
 
 async function boundedSourceEvidence(root) {
-  const roots = ['src', 'server', 'app/api/auth', 'prisma/schema.prisma'];
+  const roots = ['src', 'server', 'app/api/auth', 'prisma/schema.prisma', 'backend/api/auth.py', 'backend/server.py', 'backend/utils', 'models/user_model.py', 'models/database.py'];
   const files = [];
   async function visit(relative, depth = 0) {
     if (files.length >= 200 || depth > 6) return;
     const target = path.join(root, relative), entry = await exists(target); if (!entry || entry.isSymbolicLink()) return;
-    if (entry.isFile()) { if (/\.(?:[cm]?[jt]s|tsx|prisma|json)$/.test(relative)) files.push(relative); return; }
+    if (entry.isFile()) { if (/\.(?:[cm]?[jt]s|tsx|prisma|json|py)$/.test(relative)) files.push(relative); return; }
     if (!entry.isDirectory()) return;
     for (const child of (await readdir(target, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) await visit(path.posix.join(relative, child.name), depth + 1);
   }
@@ -148,12 +159,13 @@ export async function assessNativeTarget(targetRoot) {
   const discovery = await discoverNativeTarget(targetRoot);
   if (!discovery.authEvidence.length) return { ...discovery, operation: 'ASSESS', classification: discovery.classification, capabilities: [], executionClassification: discovery.classification === 'GREENFIELD' ? 'AUTO_REPAIR_AVAILABLE' : 'AUTH_DEVELOPMENT_REQUIRED' };
   const sources = await boundedSourceEvidence(discovery.targetRoot);
-  const capabilities = ALIGNMENT_PROBES.map(([id, pattern, expectedEvidence]) => {
+  const probes = discovery.stack.runtime === 'python' ? PYTHON_ALIGNMENT_PROBES : ALIGNMENT_PROBES;
+  const capabilities = probes.map(([id, pattern, expectedEvidence]) => {
     const paths = sources.filter(item => pattern.test(item.text)).map(item => item.path);
     return { id, status: paths.length ? 'OBSERVED_NOT_VERIFIED' : 'NOT_OBSERVED', evidence: paths, expectedEvidence };
   });
   const missing = capabilities.filter(item => item.status === 'NOT_OBSERVED');
-  const supportedStack = discovery.stack.runtime === 'node' && discovery.stack.language === 'typescript';
+  const supportedStack = (discovery.stack.runtime === 'node' && discovery.stack.language === 'typescript') || (discovery.stack.runtime === 'python' && discovery.stack.framework === 'flask');
   const classification = discovery.prohibitedPersistentArtifacts.length ? 'NONCONFORMANT' : !supportedStack ? 'MIGRATION_REQUIRED' : missing.length ? 'DEGRADED' : 'COMPATIBLE';
   return { ...discovery, operation: 'ASSESS', classification, capabilities, executionClassification: classification === 'COMPATIBLE' ? 'AGENT_INTEGRATION_REQUIRED' : classification === 'DEGRADED' ? 'AGENT_INTEGRATION_REQUIRED' : 'AUTH_DEVELOPMENT_REQUIRED', limitation: 'Static observations are leads, not runtime conformance proof.' };
 }
@@ -187,9 +199,17 @@ export async function discoverNativeTarget(targetRoot) {
     try { packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')); } catch { throw new Error('TARGET_PACKAGE_JSON_INVALID'); }
   }
   const dependencies = { ...(packageJson?.dependencies || {}), ...(packageJson?.devDependencies || {}) };
+  const pythonRequirements = [];
+  for (const relative of ['requirements.txt', 'requirements-core.txt', 'pyproject.toml']) {
+    if (inventory[relative] === 'file') pythonRequirements.push((await readFile(path.join(root, relative), 'utf8')).toLowerCase());
+  }
+  const python = pythonRequirements.length > 0 || inventory.backend === 'directory';
   const stack = {
-    language: dependencies.typescript || inventory['tsconfig.json'] === 'file' ? 'typescript' : packageJson ? 'javascript' : 'unknown',
-    runtime: packageJson ? 'node' : 'unknown', express: Boolean(dependencies.express), prisma: Boolean(dependencies.prisma || dependencies['@prisma/client']),
+    language: dependencies.typescript || inventory['tsconfig.json'] === 'file' ? 'typescript' : packageJson ? 'javascript' : python ? 'python' : 'unknown',
+    runtime: packageJson ? 'node' : python ? 'python' : 'unknown',
+    framework: pythonRequirements.some(value => value.includes('flask')) ? 'flask' : null,
+    persistence: pythonRequirements.length && (await exists(path.join(root, 'models', 'database.py'))) ? 'sqlite' : null,
+    express: Boolean(dependencies.express), prisma: Boolean(dependencies.prisma || dependencies['@prisma/client']),
   };
   const prohibited = [];
   for (const relative of ['.auth-runtime', '.auth-kit']) if (await exists(path.join(root, relative))) prohibited.push(relative);
