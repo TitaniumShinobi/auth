@@ -112,3 +112,48 @@ test('release gate requires current runtime evidence and externally pinned histo
  await writeFile(path.join(root,'baseline.json'),JSON.stringify({...baseline,capabilities:[]}));const rejected=run(args);assert.equal(rejected.status,1);assert.match(rejected.stderr,/PIN_MISMATCH/);
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('every native operation rejects release flags and unknown options before accessing a target', () => {
+  for (const operation of ['discover','assess','plan','align-plan','apply','verify','repair','migrate','recover']) {
+    for (const [flag,values] of [['--release',[]],['--runtime-evidence',['missing.json']],['--runtime-digest',['abc']],['--require-history',[]],['--baseline',['missing.json']],['--baseline-digest',['abc']],['--authority-evidence',['missing.json']],['--authority-sha256',['abc']],['--profile',['RELYING_PARTY_CLIENT']]]) {
+      const result=run(['native',operation,'--repo','/does-not-exist',flag,...values]);
+      assert.equal(result.status,1);assert.match(result.stderr,/UNSUPPORTED_NATIVE_RELEASE_FLAG/);assert.match(result.stderr,/auth wizard --operator VERIFY --release/);assert.equal(result.stdout,'');
+    }
+    const unknown=run(['native',operation,'--repo','/does-not-exist','--invented','value']);assert.equal(unknown.status,1);assert.match(unknown.stderr,/UNSUPPORTED_FLAG/);
+  }
+});
+
+test('flags for another native operation are rejected, including ignored safety requests', () => {
+  for (const args of [
+    ['native','repair','--repo','/missing','--dry-run','--authorize'],
+    ['native','verify','--repo','/missing','--authorize'],
+    ['native','discover','--repo','/missing','--receipt','missing.json'],
+    ['native','plan','--repo','/missing','--auth-role','RELYING_PARTY'],
+  ]) {const result=run(args);assert.equal(result.status,1);assert.match(result.stderr,/UNSUPPORTED_FLAG/);assert.equal(result.stdout,'');}
+});
+
+test('both CLI surfaces reject malformed, duplicate, and unsupported flags', () => {
+  for (const prefix of [['native','verify','--repo','/missing'],['wizard','--adapter','/missing']]) {
+    for (const [extra,error] of [
+      [['--typo','value'],/UNSUPPORTED_FLAG/],
+      [[prefix.find(value=>value.startsWith('--')),'again'],/DUPLICATE_FLAG/],
+      [['unexpected'],/UNEXPECTED_POSITIONAL_ARGUMENT/],
+      [[prefix[0]==='native'?'--receipt':'--baseline'],/FLAG_VALUE_REQUIRED/],
+      [[prefix[0]==='native'?'--receipt':'--baseline','--unknown'],/FLAG_VALUE_REQUIRED/],
+    ]) {const result=run([...prefix,...extra]);assert.equal(result.status,1);assert.match(result.stderr,error);}
+  }
+  const booleanValue=run(['wizard','--adapter','/missing','--release','false']);assert.equal(booleanValue.status,1);assert.match(booleanValue.stderr,/UNEXPECTED_POSITIONAL_ARGUMENT/);
+  for (const args of [['--operator','VERIFY','--authorize'],['--operator','OBSERVE','--act-module','missing.mjs'],['--operator','ACT','--runtime-evidence','missing.json']]) {
+    const result=run(['wizard','--adapter','/missing',...args]);assert.equal(result.status,1);assert.match(result.stderr,/ACT_FLAGS_REQUIRE_ACT_OPERATOR|RUNTIME_EVIDENCE_REQUIRES_SEPARATE_VERIFY/);
+  }
+});
+
+test('native source-only PASS remains valid but --release cannot silently inherit that success', async () => {
+  const {createHash}=await import('node:crypto');const {realpath,readFile}=await import('node:fs/promises');const {digest}=await import('./auth-conformance-binding.mjs');const {RECEIPT_SCHEMA}=await import('./auth-native-wizard.mjs');
+  const root=await realpath(await mkdtemp(path.join(os.tmpdir(),'auth-source-scope-')));try {
+    const hash=x=>createHash('sha256').update(x).digest('hex');const source='throw new Error("synthetic unavailable runtime");';await writeFile(path.join(root,'app.mjs'),source);
+    const payload={schema:RECEIPT_SCHEMA,targetBinding:hash(root),files:{'app.mjs':hash(source)}};const receipt=path.join(root,'receipt.json');const bytes=JSON.stringify({...payload,receiptDigest:digest(payload)});await writeFile(receipt,bytes);
+    const args=['native','verify','--repo',root,'--receipt',receipt];const valid=run(args);assert.equal(valid.status,0,valid.stderr);const report=JSON.parse(valid.stdout);assert.equal(report.verification_scope,'SOURCE_INTEGRITY');assert.equal(report.assurance.runtime_acceptance,'INDETERMINATE');
+    const invalid=run([...args,'--release']);assert.equal(invalid.status,1);assert.match(invalid.stderr,/UNSUPPORTED_NATIVE_RELEASE_FLAG/);assert.equal(await readFile(receipt,'utf8'),bytes);assert.equal(await readFile(path.join(root,'app.mjs'),'utf8'),source);
+  } finally {await rm(root,{recursive:true,force:true});}
+});

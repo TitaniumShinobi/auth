@@ -8,12 +8,46 @@ const filename = fileURLToPath(import.meta.url), repoRoot = path.resolve(path.di
 const removed = new Set(['setup', 'validate', 'runtime', 'product', 'observer', 'acceptance']);
 const value = (argv, flag) => { const index = argv.indexOf(flag); return index >= 0 ? argv[index + 1] : undefined; };
 const readJson = async target => JSON.parse(await readFile(target, 'utf8'));
+const booleanFlags = new Set(['--authorize', '--dry-run', '--require-history', '--release']);
+const nativeFlags = {
+  discover: ['--repo'], assess: ['--repo'],
+  plan: ['--repo', '--product', '--receipt', '--plan', '--target-revision'],
+  'align-plan': ['--repo', '--product', '--receipt', '--plan', '--target-revision', '--auth-role', '--auth-runtime', '--auth-entrypoint'],
+  apply: ['--repo', '--plan', '--authorize', '--dry-run'],
+  verify: ['--repo', '--receipt'], repair: ['--repo', '--receipt', '--authorize'],
+  migrate: ['--repo', '--receipt', '--target-revision', '--new-receipt', '--authorize'],
+  recover: ['--repo'],
+};
+const wizardFlags = ['--adapter', '--baseline', '--profile', '--operator', '--act-module', '--repo', '--outcome', '--capability', '--authority-evidence', '--authority-sha256', '--authorize', '--release', '--runtime-evidence', '--runtime-digest', '--require-history', '--baseline-digest'];
+const releaseFlags = new Set(['--release', '--runtime-evidence', '--runtime-digest', '--require-history', '--baseline', '--baseline-digest', '--authority-evidence', '--authority-sha256', '--profile']);
+
+// Validate the complete invocation before imports, file reads, or supported ACT.
+function validateFlags(tokens, allowed, native = false) {
+  const seen = new Set();
+  for (let index = 0; index < tokens.length; index += 1) {
+    const flag = tokens[index];
+    if (!flag.startsWith('--')) throw new Error('UNEXPECTED_POSITIONAL_ARGUMENT');
+    if (!allowed.includes(flag)) {
+      if (native && releaseFlags.has(flag)) throw new Error(`UNSUPPORTED_NATIVE_RELEASE_FLAG: ${flag}; use auth wizard --operator VERIFY --release`);
+      throw new Error(`UNSUPPORTED_FLAG: ${flag}`);
+    }
+    if (seen.has(flag)) throw new Error(`DUPLICATE_FLAG: ${flag}`);
+    seen.add(flag);
+    if (!booleanFlags.has(flag)) {
+      const argument = tokens[++index];
+      if (!argument || argument.startsWith('--')) throw new Error(`FLAG_VALUE_REQUIRED: ${flag}`);
+    }
+  }
+}
+
 function usage(code = 0) {
   const output = [
     'Usage:',
     '  auth native <discover|assess|plan|align-plan|apply|verify|repair|migrate|recover> --repo <path> [--product <id>] [--receipt <path>] [--new-receipt <path>] [--plan <path>] [--target-revision <commit>] [--dry-run] [--authorize]',
     '  auth wizard --adapter <json> [--baseline <json>] [--profile <profile>] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--repo <path>] [--outcome <text>] [--capability <id>] [--authority-evidence <json> --authority-sha256 <digest>] [--authorize] [--release --runtime-evidence <json> --runtime-digest <canonical-sha256>] [--require-history --baseline-digest <canonical-sha256>]',
     '  align-plan requires --auth-role <IDENTITY_AUTHORITY|RELYING_PARTY> --auth-entrypoint <relative-file>; mixed stacks also require --auth-runtime <node|python>.',
+    'Flags are subcommand-specific. Unknown, duplicate, misplaced, or valueless flags fail before any operation.',
+    'Native verification proves source integrity only. Release acceptance uses auth wizard --operator VERIFY --release.',
     '',
     'AUTH creates or aligns product-owned authentication and exits. Persistent AUTH runtimes, kits, adapters, daemons, copied packages, and source dependencies are prohibited.',
   ].join('\n');
@@ -21,6 +55,7 @@ function usage(code = 0) {
 }
 
 function parseFlags(argv) {
+  validateFlags(argv.slice(1), wizardFlags);
   const args = { command: argv[0], operator: 'VERIFY', authorize: false };
   for (let index = 1; index < argv.length; index += 1) {
     const token = argv[index];
@@ -45,6 +80,8 @@ async function loadRegisteredActModule(modulePath, repository) {
 async function runWizard(args) {
   if (!args.adapter || !['OBSERVE', 'ASSESS', 'DECIDE', 'VERIFY', 'ACT'].includes(args.operator)) throw new Error('wizard requires --adapter and a supported --operator');
   if (args.release && args.operator === 'ACT') throw new Error('RELEASE_REQUIRES_SEPARATE_VERIFY');
+  if (args.operator !== 'ACT' && (args.authorize || args['act-module'])) throw new Error('ACT_FLAGS_REQUIRE_ACT_OPERATOR');
+  if (args.operator === 'ACT' && (args['runtime-evidence'] || args['runtime-digest'])) throw new Error('RUNTIME_EVIDENCE_REQUIRES_SEPARATE_VERIFY');
   const { createBlockerHandoffs } = await import('./auth-blocker-handoff.mjs');
   if (args.capability) { const { CAPABILITIES } = await import('./auth-capability-catalog.mjs'); if (!CAPABILITIES.some(item => item.id === args.capability)) throw new Error(`Unknown capability: ${args.capability}`); }
   const commandFor = operator => {
@@ -84,7 +121,10 @@ async function runWizard(args) {
 }
 
 async function runNative(argv) {
-  const operation = argv[1], rootValue = value(argv, '--repo');
+  const operation = argv[1];
+  if (!Object.hasOwn(nativeFlags, operation)) throw new Error('invalid native command');
+  validateFlags(argv.slice(2), nativeFlags[operation], true);
+  const rootValue = value(argv, '--repo');
   if (!rootValue || !['discover', 'assess', 'plan', 'align-plan', 'apply', 'verify', 'repair', 'migrate', 'recover'].includes(operation)) throw new Error('invalid native command');
   const native = await import('./auth-native-wizard.mjs'), root = path.resolve(rootValue), receipt = value(argv, '--receipt'), planPath = value(argv, '--plan'), productId = value(argv, '--product') || path.basename(root); let result;
   if (operation === 'discover') result = await native.discoverNativeTarget(root);
