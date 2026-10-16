@@ -7,3 +7,5 @@ The deterministic classifications are `COMPATIBLE` when all profile signals are 
 `auth native align-plan --repo <product> --product <id> --receipt <path> --plan <path>` creates an exact plan containing only a product-owned `auth-standards.json` and `test/auth-contract.test.mjs`. Applying it uses the same crash-recoverable transaction as greenfield creation. Existing authentication source, configuration, secrets, persistence, identities, sessions, and data are byte-preserved. Existing files at either alignment destination stop planning for review.
 
 The generated test requires an operator-supplied `AUTH_BASE_URL` and observes health, OAuth metadata, issuer origin, and S256 PKCE declaration. Passing that test is one evidence input, not complete conformance. Missing reusable AUTH capability remains `AUTH_DEVELOPMENT_REQUIRED`; credentials, provider registration, consent, and irreversible migration remain external or owner actions.
+
+Release evidence and product-owned CI: [AUTH assurance boundaries](AUTH_ASSURANCE_BOUNDARIES.md).

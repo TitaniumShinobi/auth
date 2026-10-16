@@ -43,3 +43,5 @@ Power-loss/fsync durability and irreversible datasource/schema migration are not
 Submit bug reports, compatibility requests, suggestions, support questions, and security concerns through the private [auth Request Intake](https://docs.google.com/forms/d/e/1FAIpQLSedgkIPwkanca6XJjb1iL2dI3rOm-4bTNF3dEXaoiT9UHXwAw/viewform). Security vulnerabilities may also be reported through GitHub's private vulnerability-reporting interface. Do not include credentials, tokens, cookies, private keys, identity databases, or user data.
 
 Security handling is defined in [SECURITY.md](SECURITY.md). Contribution and support boundaries are documented in [CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md).
+
+Verification scopes and release gates: [AUTH assurance boundaries](docs/AUTH_ASSURANCE_BOUNDARIES.md).
