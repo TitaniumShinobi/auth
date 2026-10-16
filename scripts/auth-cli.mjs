@@ -12,7 +12,8 @@ function usage(code = 0) {
   const output = [
     'Usage:',
     '  auth native <discover|assess|plan|align-plan|apply|verify|repair|migrate|recover> --repo <path> [--product <id>] [--receipt <path>] [--new-receipt <path>] [--plan <path>] [--target-revision <commit>] [--dry-run] [--authorize]',
-    '  auth wizard --adapter <json> [--baseline <json>] [--profile <profile>] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--repo <path>] [--outcome <text>] [--capability <id>] [--authority-evidence <json> --authority-sha256 <digest>] [--authorize]',
+    '  auth wizard --adapter <json> [--baseline <json>] [--profile <profile>] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--repo <path>] [--outcome <text>] [--capability <id>] [--authority-evidence <json> --authority-sha256 <digest>] [--authorize] [--release --runtime-evidence <json> --runtime-digest <canonical-sha256>] [--require-history --baseline-digest <canonical-sha256>]',
+    '  align-plan requires --auth-role <IDENTITY_AUTHORITY|RELYING_PARTY> --auth-entrypoint <relative-file>; mixed stacks also require --auth-runtime <node|python>.',
     '',
     'AUTH creates or aligns product-owned authentication and exits. Persistent AUTH runtimes, kits, adapters, daemons, copied packages, and source dependencies are prohibited.',
   ].join('\n');
@@ -23,7 +24,7 @@ function parseFlags(argv) {
   const args = { command: argv[0], operator: 'VERIFY', authorize: false };
   for (let index = 1; index < argv.length; index += 1) {
     const token = argv[index];
-    if (token === '--authorize') { args.authorize = true; continue; }
+    if (['--authorize','--require-history','--release'].includes(token)) { args[token.slice(2)] = true; continue; }
     if (!token.startsWith('--') || !argv[index + 1] || argv[index + 1].startsWith('--')) usage(1);
     args[token.slice(2)] = argv[++index];
   }
@@ -43,14 +44,21 @@ async function loadRegisteredActModule(modulePath, repository) {
 
 async function runWizard(args) {
   if (!args.adapter || !['OBSERVE', 'ASSESS', 'DECIDE', 'VERIFY', 'ACT'].includes(args.operator)) throw new Error('wizard requires --adapter and a supported --operator');
+  if (args.release && args.operator === 'ACT') throw new Error('RELEASE_REQUIRES_SEPARATE_VERIFY');
   const { createBlockerHandoffs } = await import('./auth-blocker-handoff.mjs');
   if (args.capability) { const { CAPABILITIES } = await import('./auth-capability-catalog.mjs'); if (!CAPABILITIES.some(item => item.id === args.capability)) throw new Error(`Unknown capability: ${args.capability}`); }
   const commandFor = operator => {
     const command = [process.execPath, filename, 'wizard', '--adapter', path.resolve(args.adapter), '--operator', operator];
-    for (const [flag, transform] of [['baseline', path.resolve], ['repo', path.resolve], ['outcome', String], ['profile', String], ['capability', String]]) if (args[flag]) command.push(`--${flag}`, transform(args[flag]));
+    for (const [flag, transform] of [['baseline', path.resolve], ['repo', path.resolve], ['outcome', String], ['profile', String], ['capability', String], ['baseline-digest', String], ['runtime-evidence', path.resolve], ['runtime-digest', String]]) if (args[flag]) command.push(`--${flag}`, transform(args[flag]));
     if (args['authority-evidence']) command.push('--authority-evidence', path.resolve(args['authority-evidence']), '--authority-sha256', args['authority-sha256'] || '');
+    for (const flag of ['require-history','release']) if (args[flag]) command.push(`--${flag}`);
     if (args.authorize && operator === 'ACT') command.push('--authorize'); return command;
   };
+  let trustedAuthorityEvidence = [];
+  if (args['authority-evidence'] || args['authority-sha256']) {
+    if (!args['authority-evidence'] || !args['authority-sha256']) throw new Error('Authority evidence requires a separately trusted SHA-256 digest');
+    const bytes = await readFile(path.resolve(args['authority-evidence'])); if (createHash('sha256').update(bytes).digest('hex') !== args['authority-sha256']) throw new Error('Authority evidence digest mismatch'); trustedAuthorityEvidence = JSON.parse(bytes);
+  }
   const context = { repository: args.repo ? path.resolve(args.repo) : null, requestedOutcome: args.outcome || null, reproductionCommand: commandFor(args.operator), verificationCommand: commandFor('VERIFY'), authorization: args.authorize, capabilityId: args.capability || null, registeredCapabilities: [] };
   if (args.operator === 'ACT') {
     if (args.authorize && args['act-module']) {
@@ -58,7 +66,7 @@ async function runWizard(args) {
       context.registeredCapabilities = [...registered.handlers.keys()].sort();
       if (args.capability && registered.handlers.has(args.capability)) {
         const { executeRepair } = await import('./auth-wizard.mjs');
-        const report = await executeRepair(adapter, { capabilityId: args.capability, authorization: { authorized: true, productId: adapter.productId, revision: adapter.revision, capabilityId: args.capability }, handlers: registered.handlers, observe: registered.observe, baseline, verificationProfile: args.profile });
+        const report = await executeRepair(adapter, { capabilityId: args.capability, authorization: { authorized: true, productId: adapter.productId, revision: adapter.revision, capabilityId: args.capability }, handlers: registered.handlers, observe: registered.observe, baseline, baselineDigest: args['baseline-digest'], requireHistory: args['require-history'] === true, trustedAuthorityEvidence, verificationProfile: args.profile });
         report.blockerHandoffs = createBlockerHandoffs(report, context); console.log(JSON.stringify(report, null, 2)); if (report.verification !== 'PASS') process.exitCode = 2; return;
       }
     }
@@ -66,13 +74,13 @@ async function runWizard(args) {
     report.blockerHandoffs = createBlockerHandoffs(report, context); console.log(JSON.stringify(report, null, 2)); process.exitCode = 2; return;
   }
   const adapter = await readJson(path.resolve(args.adapter)), baseline = args.baseline ? await readJson(path.resolve(args.baseline)) : undefined;
-  let trustedAuthorityEvidence = [];
-  if (args['authority-evidence'] || args['authority-sha256']) {
-    if (!args['authority-evidence'] || !args['authority-sha256']) throw new Error('Authority evidence requires a separately trusted SHA-256 digest');
-    const bytes = await readFile(path.resolve(args['authority-evidence'])); if (createHash('sha256').update(bytes).digest('hex') !== args['authority-sha256']) throw new Error('Authority evidence digest mismatch'); trustedAuthorityEvidence = JSON.parse(bytes);
-  }
   const { evaluateAdapter } = await import('./auth-wizard.mjs');
-  const report = evaluateAdapter(adapter, { baseline, operator: args.operator, trustedAuthorityEvidence, verificationProfile: args.profile }); report.lifecycle_preservation = 'NOT_ASSESSED_USE_PRODUCT_VERIFY'; report.blockerHandoffs = createBlockerHandoffs(report, context); console.log(JSON.stringify(report, null, 2)); if (['VERIFY', 'DECIDE'].includes(args.operator) && report.profile_verification !== 'PASS') process.exitCode = 2;
+  const report = evaluateAdapter(adapter, { baseline, operator: args.operator, trustedAuthorityEvidence, verificationProfile: args.profile, baselineDigest: args['baseline-digest'], requireHistory: args['require-history'] === true });
+  const { runtimeAcceptance } = await import('./auth-assurance.mjs');
+  report.assurance.runtime_acceptance = runtimeAcceptance(report, args['runtime-evidence'] ? await readJson(path.resolve(args['runtime-evidence'])) : undefined, args['runtime-digest']);
+  const releaseResults = [report.profile_verification, report.assurance.runtime_acceptance, ...(args['require-history'] ? [report.assurance.historical_continuity] : [])];
+  report.release_acceptance = releaseResults.includes('FAIL') ? 'FAIL' : releaseResults.every(result => result === 'PASS') ? 'PASS' : 'INDETERMINATE';
+  if (args.release && report.release_acceptance !== 'PASS') process.exitCode = 2; report.lifecycle_preservation = report.assurance.historical_continuity; report.blockerHandoffs = createBlockerHandoffs(report, context); console.log(JSON.stringify(report, null, 2)); if (['VERIFY', 'DECIDE'].includes(args.operator) && report.profile_verification !== 'PASS') process.exitCode = 2;
 }
 
 async function runNative(argv) {
@@ -81,7 +89,7 @@ async function runNative(argv) {
   const native = await import('./auth-native-wizard.mjs'), root = path.resolve(rootValue), receipt = value(argv, '--receipt'), planPath = value(argv, '--plan'), productId = value(argv, '--product') || path.basename(root); let result;
   if (operation === 'discover') result = await native.discoverNativeTarget(root);
   else if (operation === 'assess') result = await native.assessNativeTarget(root);
-  else if (operation === 'plan' || operation === 'align-plan') { result = operation === 'plan' ? await native.planNativeTarget(root, { sourceRoot: repoRoot, sourceRevision: value(argv, '--target-revision') || 'HEAD', productId, receiptPath: receipt }) : await native.planNativeAlignment(root, { sourceRoot: repoRoot, sourceRevision: value(argv, '--target-revision') || 'HEAD', productId, receiptPath: receipt }); if (planPath) await writeFile(path.resolve(planPath), `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' }); }
+  else if (operation === 'plan' || operation === 'align-plan') { result = operation === 'plan' ? await native.planNativeTarget(root, { sourceRoot: repoRoot, sourceRevision: value(argv, '--target-revision') || 'HEAD', productId, receiptPath: receipt }) : await native.planNativeAlignment(root, { sourceRoot: repoRoot, sourceRevision: value(argv, '--target-revision') || 'HEAD', productId, receiptPath: receipt, authenticationRole: value(argv, '--auth-role'), authenticationRuntime: value(argv, '--auth-runtime'), authenticationEntrypoint: value(argv, '--auth-entrypoint') }); if (planPath) await writeFile(path.resolve(planPath), `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' }); }
   else if (operation === 'apply') { if (!planPath) throw new Error('native apply requires --plan'); result = await native.applyNativePlan(await readJson(path.resolve(planPath)), { sourceRoot: repoRoot, authorized: argv.includes('--authorize'), dryRun: argv.includes('--dry-run') }); }
   else if (operation === 'verify') { if (!receipt) throw new Error('native verify requires --receipt'); result = await native.verifyNativeReceipt(root, path.resolve(receipt)); }
   else if (operation === 'repair') { if (!receipt) throw new Error('native repair requires --receipt'); result = await native.repairNativeTarget(root, path.resolve(receipt), { sourceRoot: repoRoot, authorized: argv.includes('--authorize') }); }

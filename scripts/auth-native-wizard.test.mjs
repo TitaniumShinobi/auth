@@ -79,7 +79,7 @@ test('existing authentication is assessed and aligned without overwriting produc
     await writeFile(path.join(root, 'src', 'auth', 'existing.ts'), existing);
     const assessment = await assessNativeTarget(root); assert.equal(assessment.classification, 'COMPATIBLE'); assert.equal(assessment.executionClassification, 'AGENT_INTEGRATION_REQUIRED');
     const before = await readFile(path.join(root, 'src', 'auth', 'existing.ts'));
-    const plan = await planNativeAlignment(root, { sourceRoot, productId: 'existing', receiptPath: receipt });
+    const plan = await planNativeAlignment(root, { authenticationRole: 'IDENTITY_AUTHORITY', authenticationEntrypoint: 'src/auth/existing.ts', sourceRoot, productId: 'existing', receiptPath: receipt });
     assert.equal(plan.mode, 'align-existing'); assert.deepEqual(plan.operations.map(item => item.path), ['auth-standards.json', 'test/auth-contract.test.mjs']);
     await applyNativePlan(plan, { sourceRoot, authorized: true });
     assert.deepEqual(await readFile(path.join(root, 'src', 'auth', 'existing.ts')), before);
@@ -189,7 +189,7 @@ test('abrupt REPAIR states recover to an unmixed old or repaired pair', async ()
 test('explicit migration records lineage and crash recovery never leaves a mixed runtime/receipt pair', async () => {
   const source = await mkdtemp(path.join(os.tmpdir(), 'auth-native-upgrade-source-'));
   try {
-    assert.equal(spawnSync('git', ['clone', '--quiet', '--no-local', sourceRoot, source]).status, 0);
+    assert.equal(spawnSync('git', ['clone', '--quiet', '--shared', sourceRoot, source]).status, 0);
     const base = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).stdout.trim();
     const markerPath = path.join(source, 'profiles', 'typescript-node-express-prisma', 'src', 'index.ts');
     await writeFile(markerPath, `${await readFile(markerPath, 'utf8')}\n// immutable upgrade fixture\n`);

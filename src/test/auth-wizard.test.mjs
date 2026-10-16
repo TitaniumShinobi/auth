@@ -60,12 +60,12 @@ test('ACT requires exact explicit authorization, a handler and applicability, th
  let calls=0;
  const authorization={authorized:true,productId:a.productId,revision:a.revision,capabilityId:'signin'};
  const handlers=new Map([['signin',()=>{calls++;a.capabilities.signin.checks.explicit_entry=true;}]]);
- await assert.rejects(executeRepair(a,{capabilityId:'signin',handlers,observe:async()=>a}),/authorization/);
+ await assert.rejects(executeRepair(a,{capabilityId:'signin',handlers,observe:async c=>({...a,postRepairProof:{runId:c.runId,capabilityId:c.capabilityId,revision:c.resultingRevision,observedAt:Date.now(),checks:CAPABILITIES.find(x=>x.id===c.capabilityId).checks}})}),/authorization/);
  assert.equal(calls,0);
- assert.equal((await executeRepair(a,{capabilityId:'signin',authorization,handlers,observe:async()=>a})).verification,'PASS');
+ assert.equal((await executeRepair(a,{capabilityId:'signin',authorization,handlers,observe:async c=>({...a,postRepairProof:{runId:c.runId,capabilityId:c.capabilityId,revision:c.resultingRevision,observedAt:Date.now(),checks:CAPABILITIES.find(x=>x.id===c.capabilityId).checks}})})).verification,'PASS');
  assert.equal(calls,1);
  handlers.set('signin',()=>{a.capabilities.signup.checks.explicit_entry=false;});
- assert.equal((await executeRepair(a,{capabilityId:'signin',authorization,handlers,observe:async()=>a})).verification,'FAIL');
+ assert.equal((await executeRepair(a,{capabilityId:'signin',authorization,handlers,observe:async c=>({...a,postRepairProof:{runId:c.runId,capabilityId:c.capabilityId,revision:c.resultingRevision,observedAt:Date.now(),checks:CAPABILITIES.find(x=>x.id===c.capabilityId).checks}})})).verification,'FAIL');
 });
 test('unsupported or stale adapters fail closed',()=>{
  assert.throws(()=>evaluateAdapter({}),/Adapter requires/);
@@ -77,7 +77,7 @@ test('supported repair preserves safe machine failure codes without leaking mess
  const a=fixture();establish(a,'signin');
  const authorization={authorized:true,productId:a.productId,revision:a.revision,capabilityId:'signin'};
  for(const [code,expected] of [['HANDSHAKE_REJECTED','HANDSHAKE_REJECTED'],['secret token value','REPAIR_FAILED']]) {
- const result=await executeRepair(a,{capabilityId:'signin',authorization,handlers:new Map([['signin',async()=>{throw Object.assign(new Error('sensitive message'),{code});}]]),observe:async()=>a});
+ const result=await executeRepair(a,{capabilityId:'signin',authorization,handlers:new Map([['signin',async()=>{throw Object.assign(new Error('sensitive message'),{code});}]]),observe:async c=>({...a,postRepairProof:{runId:c.runId,capabilityId:c.capabilityId,revision:c.resultingRevision,observedAt:Date.now(),checks:CAPABILITIES.find(x=>x.id===c.capabilityId).checks}})});
  assert.equal(result.error,expected);assert.equal(result.verification,'FAIL');assert.equal(result.profile_verification,'FAIL');assert.ok(!JSON.stringify(result).includes('sensitive message'));
  }
 });

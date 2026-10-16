@@ -155,10 +155,15 @@ async function boundedSourceEvidence(root) {
   return evidence;
 }
 
-export async function assessNativeTarget(targetRoot) {
+export async function assessNativeTarget(targetRoot, ownership = {}) {
   const discovery = await discoverNativeTarget(targetRoot);
+  if (ownership.runtime) {
+    if (!["node", "python"].includes(ownership.runtime)) throw new Error("AUTH_RUNTIME_INVALID");
+    discovery.stack.runtime = ownership.runtime;
+    discovery.stack.language = ownership.runtime === "python" ? "python" : discovery.stack.language;
+  }
   if (!discovery.authEvidence.length) return { ...discovery, operation: 'ASSESS', classification: discovery.classification, capabilities: [], executionClassification: discovery.classification === 'GREENFIELD' ? 'AUTO_REPAIR_AVAILABLE' : 'AUTH_DEVELOPMENT_REQUIRED' };
-  const sources = await boundedSourceEvidence(discovery.targetRoot);
+  const sources = (await boundedSourceEvidence(discovery.targetRoot)).filter(item => discovery.stack.runtime === 'python' ? item.path.endsWith('.py') : discovery.stack.runtime === 'node' ? !item.path.endsWith('.py') : false);
   const probes = discovery.stack.runtime === 'python' ? PYTHON_ALIGNMENT_PROBES : ALIGNMENT_PROBES;
   const capabilities = probes.map(([id, pattern, expectedEvidence]) => {
     const paths = sources.filter(item => pattern.test(item.text)).map(item => item.path);
@@ -170,17 +175,23 @@ export async function assessNativeTarget(targetRoot) {
   return { ...discovery, operation: 'ASSESS', classification, capabilities, executionClassification: classification === 'COMPATIBLE' ? 'AGENT_INTEGRATION_REQUIRED' : classification === 'DEGRADED' ? 'AGENT_INTEGRATION_REQUIRED' : 'AUTH_DEVELOPMENT_REQUIRED', limitation: 'Static observations are leads, not runtime conformance proof.' };
 }
 
-function alignmentTestSource() {
-  return `import test from 'node:test';\nimport assert from 'node:assert/strict';\nconst base=process.env.AUTH_BASE_URL;\ntest('declared auth runtime exposes health and OAuth metadata',async()=>{assert.ok(base,'AUTH_BASE_URL is required');const health=await fetch(new URL('/health',base));assert.equal(health.ok,true);const metadata=await fetch(new URL('/.well-known/oauth-authorization-server',base));assert.equal(metadata.ok,true);const body=await metadata.json();assert.equal(new URL(body.issuer).origin,new URL(base).origin);assert.ok(body.code_challenge_methods_supported?.includes('S256'));});\n`;
+function alignmentTestSource(role) {
+  if (role === "RELYING_PARTY") return `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { readFile } from 'node:fs/promises';\ntest('relying-party declared acceptance requires product-owned runtime test', async()=>{const contract=JSON.parse(await readFile('auth-standards.json','utf8'));assert.equal(contract.authenticationRole,'RELYING_PARTY');assert.fail('PRODUCT_RUNTIME_TEST_REQUIRED: implement session/callback acceptance in this product-owned test');});\n`;
+  return `import test from 'node:test';\nimport assert from 'node:assert/strict';\nconst base=process.env.AUTH_BASE_URL;\ntest('authority metadata smoke only, not runtime acceptance',async()=>{assert.ok(base,'AUTH_BASE_URL is required');const health=await fetch(new URL('/health',base));assert.equal(health.ok,true);const metadata=await fetch(new URL('/.well-known/oauth-authorization-server',base));assert.equal(metadata.ok,true);const body=await metadata.json();assert.equal(new URL(body.issuer).origin,new URL(base).origin);assert.ok(body.code_challenge_methods_supported?.includes('S256'));});\n`;
 }
 
-export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevision = 'HEAD', productId = 'product', receiptPath } = {}) {
+export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevision = 'HEAD', productId = 'product', receiptPath, authenticationRole, authenticationRuntime, authenticationEntrypoint } = {}) {
   if (!sourceRoot || !receiptPath) throw new Error('SOURCE_AND_RECEIPT_REQUIRED');
-  const assessment = await assessNativeTarget(targetRoot);
+  if (!['IDENTITY_AUTHORITY','RELYING_PARTY'].includes(authenticationRole)) throw new Error('AUTHENTICATION_ROLE_REQUIRED');
+  const assessment = await assessNativeTarget(targetRoot, { runtime: authenticationRuntime });
+  if (assessment.stack.runtime === 'ambiguous') throw new Error('AUTHENTICATION_RUNTIME_AMBIGUOUS');
+  if (!authenticationEntrypoint || !(await exists(inside(assessment.targetRoot, authenticationEntrypoint)))?.isFile()) throw new Error('AUTHENTICATION_ENTRYPOINT_REQUIRED');
+  if (assessment.stack.runtime === 'python' ? !authenticationEntrypoint.endsWith('.py') : !/\.[cm]?[jt]sx?$/.test(authenticationEntrypoint)) throw new Error('AUTHENTICATION_ENTRYPOINT_RUNTIME_MISMATCH');
+  if ((await realpath(inside(assessment.targetRoot, authenticationEntrypoint))) !== inside(assessment.targetRoot, authenticationEntrypoint)) throw new Error('AUTHENTICATION_ENTRYPOINT_UNSAFE');
   if (!assessment.authEvidence.length) throw new Error('ALIGNMENT_REQUIRES_EXISTING_AUTH');
   if (assessment.prohibitedPersistentArtifacts.length) throw new Error('PERSISTENT_AUTH_ARTIFACT_MIGRATION_REQUIRED');
-  const contract = { schema: 'life.auth.existing-contract/1', profile: NATIVE_PROFILE, productId, classification: assessment.classification, capabilities: assessment.capabilities.map(item => item.id), observations: assessment.capabilities, verification: 'PENDING_RUNTIME_EVIDENCE' };
-  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(alignmentTestSource())]];
+  const contract = { schema: 'life.auth.existing-contract/1', profile: assessment.stack.runtime === 'python' ? PYTHON_FLASK_SQLITE_PROFILE : NATIVE_PROFILE, authenticationRole, authenticationRuntime: assessment.stack.runtime, authenticationEntrypoint, productId, classification: assessment.classification, capabilities: assessment.capabilities.map(item => item.id), observations: assessment.capabilities, verification: 'PENDING_RUNTIME_EVIDENCE' };
+  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(alignmentTestSource(authenticationRole))]];
   const operations = [];
   for (const [relative, bytes] of generated) {
     if (await exists(inside(assessment.targetRoot, relative))) throw new Error(`EXISTING_PRODUCT_FILE_REVIEW_REQUIRED:${relative}`);
@@ -206,7 +217,7 @@ export async function discoverNativeTarget(targetRoot) {
   const python = pythonRequirements.length > 0 || inventory.backend === 'directory';
   const stack = {
     language: dependencies.typescript || inventory['tsconfig.json'] === 'file' ? 'typescript' : packageJson ? 'javascript' : python ? 'python' : 'unknown',
-    runtime: packageJson ? 'node' : python ? 'python' : 'unknown',
+    runtime: packageJson && python ? 'ambiguous' : packageJson ? 'node' : python ? 'python' : 'unknown',
     framework: pythonRequirements.some(value => value.includes('flask')) ? 'flask' : null,
     persistence: pythonRequirements.length && (await exists(path.join(root, 'models', 'database.py'))) ? 'sqlite' : null,
     express: Boolean(dependencies.express), prisma: Boolean(dependencies.prisma || dependencies['@prisma/client']),
@@ -388,13 +399,14 @@ export async function verifyNativeTarget(targetRoot, planOrReceipt) {
   const prohibited = [];
   for (const relative of ['.auth-runtime', '.auth-kit']) if (await exists(path.join(root, relative))) prohibited.push(relative);
   if (prohibited.length) failures.push({ error: 'PERSISTENT_AUTH_FOOTPRINT', paths: prohibited });
-  return { operation: 'VERIFY', verification: failures.length ? 'FAIL' : 'PASS', targetBinding: sha(Buffer.from(root)), files, failures, prohibitedPersistentArtifacts: prohibited };
+  return { operation: 'VERIFY', verification_scope: 'SOURCE_INTEGRITY', assurance: { source_integrity: failures.length ? 'FAIL' : 'PASS', capability_conformance: 'INDETERMINATE', runtime_acceptance: 'INDETERMINATE', historical_continuity: 'INDETERMINATE' }, verification: failures.length ? 'FAIL' : 'PASS', targetBinding: sha(Buffer.from(root)), files, failures, prohibitedPersistentArtifacts: prohibited };
 }
 
 export async function verifyNativeReceipt(targetRoot, receiptPath) {
   const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
   const { receiptDigest, ...payload } = receipt;
   if (receipt.schema !== RECEIPT_SCHEMA || digestJson(payload) !== receiptDigest) throw new Error('RECEIPT_INVALID');
+  if (receipt.targetBinding !== sha(Buffer.from(await realpath(targetRoot)))) throw new Error('RECEIPT_TARGET_MISMATCH');
   return verifyNativeTarget(targetRoot, receipt);
 }
 

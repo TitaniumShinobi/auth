@@ -48,7 +48,7 @@ export function applyVerificationProfile(report,profile='FULL_AUTHORITY_CONFORMA
   const declarationOwners={'counterparts:missing':{id:'cross_product.offer',family:'cross_product'},'emails:missing':{id:'auth_email.contract',family:'auth_email'},'welcome-emails:missing':{id:'welcome.email',family:'enrollment'}};
   const outsideProfileUnknowns=report.unknownCapabilities.filter(id=>!report.unknownDeclarations?.includes(id)&&declarationOwners[id]&&!requiredByProfile(profile,declarationOwners[id],{}));
   const blockingUnknowns=report.unknownCapabilities.filter(id=>!outsideProfileUnknowns.includes(id));
-  const profileResult=profile==='FULL_AUTHORITY_CONFORMANCE'?report.verification:
+  const profileResult=profileRegressions.length?'FAIL':profile==='FULL_AUTHORITY_CONFORMANCE'?report.verification:
     profileRegressions.length||required.some(c=>c.verification==='FAIL')?'FAIL':missingAssertionObligation||blockingUnknowns.length||required.some(c=>c.verification==='INDETERMINATE')?'INDETERMINATE':'PASS';
   return {...report,verification_profile:profile,profile_verification:profileResult,full_verification:report.verification,
     profile_required_checks:required,profile_regressions:profileRegressions,outside_profile_unresolved_checks:outside,outside_profile_unknowns:outsideProfileUnknowns};

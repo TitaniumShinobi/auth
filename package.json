@@ -16,7 +16,7 @@
     "test:wizard": "bin/node20 --test scripts/auth-cli.test.mjs",
     "test:durability": "bin/node20 --test --test-concurrency=1 scripts/auth-native-wizard.test.mjs",
     "test:native": "bin/node20 --test --test-concurrency=1 scripts/auth-native-wizard.test.mjs",
-    "test:standards": "bin/node20 --test src/test/auth-wizard.test.mjs src/test/auth-lifecycle.test.mjs src/test/auth-blocker-handoff.test.mjs src/test/auth-verification-profiles.test.mjs src/test/resource-authorization-wizard.test.mjs"
+    "test:standards": "bin/node20 --test scripts/auth-assurance.test.mjs src/test/auth-wizard.test.mjs src/test/auth-lifecycle.test.mjs src/test/auth-blocker-handoff.test.mjs src/test/auth-verification-profiles.test.mjs src/test/resource-authorization-wizard.test.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.12.0",

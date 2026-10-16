@@ -5,7 +5,7 @@ const canonical = value => Array.isArray(value) ? value.map(canonical) : value &
 export const digest = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 export function seal(record) { return { ...record, digest: digest(record) }; }
 export function validBinding(record, adapter, now = Date.now()) {
-  if (!record.binding) return !record.digest;
+  if (!record.binding) return false; // Legacy evidence is diagnostic only, never release conformance.
   const { digest: claimed, ...payload } = record;
   const binding = record.binding;
   return claimed === digest(payload) && binding.contractVersion === CONFORMANCE_CONTRACT

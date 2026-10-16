@@ -1,3 +1,5 @@
+import { seal, CONFORMANCE_CONTRACT } from '../../scripts/auth-conformance-binding.mjs';
+const bound = ({digest: _old, ...record}) => seal({...record,binding:{contractVersion:CONFORMANCE_CONTRACT,configurationDigest:'a'.repeat(64),runtimeDigest:'b'.repeat(64),generatedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()}});
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CAPABILITIES} from '../../scripts/auth-capability-catalog.mjs';
@@ -10,7 +12,7 @@ function fixture(){
  for(const c of CAPABILITIES){
   adapter.capabilities[c.id]={applicability:'TRUE',implementation:'ESTABLISHED',evidence:['test:fixture'],checks:{}};
   for(const id of c.checks)if(requiredByProfile('RELYING_PARTY_CLIENT',c,{id})){
-   if(verificationOwner(c.id,id)==='EXTERNAL_AUTHORITY')trustedAuthorityEvidence.push({productId:adapter.productId,revision:'r1',authority:'authority',authorityRevision:'a1',capabilityId:c.id,checkId:id,verification_owner:'EXTERNAL_AUTHORITY',kind:'CONFORMANCE',result:'PASS',references:['test:authority']});
+   if(verificationOwner(c.id,id)==='EXTERNAL_AUTHORITY')trustedAuthorityEvidence.push(bound({productId:adapter.productId,revision:'r1',authority:'authority',authorityRevision:'a1',capabilityId:c.id,checkId:id,verification_owner:'EXTERNAL_AUTHORITY',kind:'CONFORMANCE',result:'PASS',references:['test:authority']}));
    else adapter.capabilities[c.id].checks[id]=true;
   }
  }
@@ -52,7 +54,7 @@ test('assertion integration separates presenter evidence from validator conforma
  for(const c of CAPABILITIES.filter(c=>requiredByProfile('ASSERTION_INTEGRATION',c,{}))){
   adapter.capabilities[c.id]={applicability:'TRUE',implementation:'ESTABLISHED',evidence:['test:bounded-fixture'],checks:{}};
   for(const checkId of c.checks){
-   if(verificationOwner(c.id,checkId)==='EXTERNAL_AUTHORITY')trustedAuthorityEvidence.push({productId:'presenter',revision:'r2',authority:c.id==='assertion.issuance'?'issuer':'validator',authorityRevision:c.id==='assertion.issuance'?'i2':'v2',capabilityId:c.id,checkId,verification_owner:'EXTERNAL_AUTHORITY',kind:'CONFORMANCE',result:'PASS',references:['test:validator-negatives']});
+   if(verificationOwner(c.id,checkId)==='EXTERNAL_AUTHORITY')trustedAuthorityEvidence.push(bound({productId:'presenter',revision:'r2',authority:c.id==='assertion.issuance'?'issuer':'validator',authorityRevision:c.id==='assertion.issuance'?'i2':'v2',capabilityId:c.id,checkId,verification_owner:'EXTERNAL_AUTHORITY',kind:'CONFORMANCE',result:'PASS',references:['test:validator-negatives']}));
    else adapter.capabilities[c.id].checks[checkId]=true;
   }
  }

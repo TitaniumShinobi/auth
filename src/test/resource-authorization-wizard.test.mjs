@@ -1,3 +1,5 @@
+import { seal, CONFORMANCE_CONTRACT } from '../../scripts/auth-conformance-binding.mjs';
+const bound = ({digest: _old, ...record}) => seal({...record,binding:{contractVersion:CONFORMANCE_CONTRACT,configurationDigest:'a'.repeat(64),runtimeDigest:'b'.repeat(64),generatedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60000).toISOString()}});
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CAPABILITIES, CATALOG_VERSION, COMPATIBLE_BASELINE_VERSIONS } from '../../scripts/auth-capability-catalog.mjs';
@@ -14,7 +16,7 @@ function fixture(includeResources = true) {
       if (verificationOwner(c.id, checkId) !== 'EXTERNAL_AUTHORITY') adapter.capabilities[c.id].checks[checkId] = true;
       else {
         const authority = ['assertion.validation', 'assertion.resource_status'].includes(c.id) ? adapter.resourceAuthority : adapter.identityAuthority;
-        trustedAuthorityEvidence.push({ productId: adapter.productId, revision: adapter.revision, authority: authority.id, authorityRevision: authority.revision, capabilityId: c.id, checkId, verification_owner: 'EXTERNAL_AUTHORITY', kind: 'CONFORMANCE', result: 'PASS', references: ['synthetic:authority-contract-tests'] });
+        trustedAuthorityEvidence.push(bound({ productId: adapter.productId, revision: adapter.revision, authority: authority.id, authorityRevision: authority.revision, capabilityId: c.id, checkId, verification_owner: 'EXTERNAL_AUTHORITY', kind: 'CONFORMANCE', result: 'PASS', references: ['synthetic:authority-contract-tests'] }));
       }
     }
   }
@@ -51,7 +53,7 @@ test('product booleans and missing authority proof cannot satisfy resource check
 
 test('failed online status check fails applicable profile and cannot be hidden by a PASS', () => {
   const { adapter, options } = fixture();
-  options.trustedAuthorityEvidence.push({ ...options.trustedAuthorityEvidence.find(e => e.capabilityId === ids[1] && e.checkId === 'status_failure_fails_closed'), result: 'FAIL' });
+  options.trustedAuthorityEvidence.push(bound({ ...options.trustedAuthorityEvidence.find(e => e.capabilityId === ids[1] && e.checkId === 'status_failure_fails_closed'), result: 'FAIL', digest: undefined }));
   const report = evaluateAdapter(adapter, options);
   assert.equal(report.profile_verification, 'FAIL'); assert.equal(row(report, ids[1]).verification, 'FAIL');
 });

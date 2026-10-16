@@ -57,7 +57,7 @@ test('wizard ACT executes only a registered bounded handler and verifies fresh o
     adapter.capabilities.signin = { applicability: 'TRUE', implementation: 'ESTABLISHED', evidence: ['fixture:before'], checks: Object.fromEntries(signin.checks.map((id) => [id, id !== 'explicit_entry'])) };
     await writeFile(adapterPath, JSON.stringify(adapter));
     const modulePath = path.join(directory, 'registered-act.mjs');
-    await writeFile(modulePath, `import {readFile,writeFile} from 'node:fs/promises';\nconst adapterPath=${JSON.stringify(adapterPath)};\nexport const handlers=new Map([['signin',async()=>{const a=JSON.parse(await readFile(adapterPath,'utf8'));a.capabilities.signin.checks.explicit_entry=true;a.capabilities.signin.evidence=['fixture:after'];await writeFile(adapterPath,JSON.stringify(a));}]]);\nexport const observe=async()=>JSON.parse(await readFile(adapterPath,'utf8'));\n`);
+    await writeFile(modulePath, `import {readFile,writeFile} from 'node:fs/promises';\nconst adapterPath=${JSON.stringify(adapterPath)};\nexport const handlers=new Map([['signin',async()=>{const a=JSON.parse(await readFile(adapterPath,'utf8'));a.capabilities.signin.checks.explicit_entry=true;a.capabilities.signin.evidence=['fixture:after'];await writeFile(adapterPath,JSON.stringify(a));}]]);\nexport const observe=async c=>{const a=JSON.parse(await readFile(adapterPath,'utf8'));return {...a,postRepairProof:{runId:c.runId,capabilityId:c.capabilityId,revision:c.resultingRevision,observedAt:Date.now(),checks:Object.keys(a.capabilities.signin.checks)}};};\n`);
     const blocked = run(['wizard', '--adapter', adapterPath, '--operator', 'ACT', '--capability', 'signin', '--repo', directory, '--act-module', modulePath]);
     assert.equal(blocked.status, 2);
     assert.equal(JSON.parse(blocked.stdout).blockerHandoffs[0].executionClassification, 'EXTERNAL_ACTION_REQUIRED');
@@ -99,4 +99,16 @@ test('PASS does not invent a blocker handoff', async () => {
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout).blockerHandoffs, []);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('release gate requires current runtime evidence and externally pinned history',async()=>{
+ const { evaluateAdapter }=await import('./auth-wizard.mjs');const { digest }=await import('./auth-conformance-binding.mjs');
+ const root=await mkdtemp(path.join(os.tmpdir(),'auth-release-'));try{
+ const adapter={schemaVersion:1,productId:'release-fixture',revision:'r2',capabilities:Object.fromEntries(CAPABILITIES.map(c=>[c.id,{applicability:'FALSE',reason:'Not adopted'}]))};adapter.capabilities.signin={applicability:'TRUE',implementation:'ESTABLISHED',evidence:['synthetic'],checks:Object.fromEntries(CAPABILITIES.find(c=>c.id==='signin').checks.map(id=>[id,true]))};
+ const baseline=evaluateAdapter({...adapter,revision:'r1'});const report=evaluateAdapter(adapter);const runtime={schema:'life.auth.runtime-acceptance/1',productId:adapter.productId,revision:adapter.revision,runId:'synthetic',issuedAt:new Date(Date.now()-1000).toISOString(),expiresAt:new Date(Date.now()+60000).toISOString(),checks:report.profile_required_checks.filter(c=>c.applicability==='TRUE').map(c=>({capabilityId:c.capabilityId,checkId:c.checkId,result:'PASS',references:['synthetic:test']}))};
+ for(const [name,data] of Object.entries({adapter,baseline,runtime}))await writeFile(path.join(root,name+'.json'),JSON.stringify(data));
+ const base=['wizard','--adapter',path.join(root,'adapter.json'),'--release'];assert.equal(run(base).status,2);
+ const args=[...base,'--runtime-evidence',path.join(root,'runtime.json'),'--runtime-digest',digest(runtime),'--require-history','--baseline',path.join(root,'baseline.json'),'--baseline-digest',digest(baseline)];const passed=run(args);assert.equal(passed.status,0,passed.stderr);assert.equal(JSON.parse(passed.stdout).release_acceptance,'PASS');
+ await writeFile(path.join(root,'baseline.json'),JSON.stringify({...baseline,capabilities:[]}));const rejected=run(args);assert.equal(rejected.status,1);assert.match(rejected.stderr,/PIN_MISMATCH/);
+ }finally{await rm(root,{recursive:true,force:true});}
 });

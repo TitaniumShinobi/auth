@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { digest } from './auth-conformance-binding.mjs';
 import { applyVerificationProfile } from './auth-verification-profiles.mjs';
 import { CAPABILITIES, CATALOG_VERSION, COMPATIBLE_BASELINE_VERSIONS } from './auth-capability-catalog.mjs';
 import { evaluateOwnedCheck } from './auth-evidence-ownership.mjs';
@@ -34,13 +36,15 @@ function evaluateCapability(contract, entry, adapter, trustedAuthorityEvidence) 
 }
 
 /** Evaluate product-owned observations, never infer applicability from product names. */
-export function evaluateAdapter(adapter, { baseline, operator = 'VERIFY', trustedAuthorityEvidence = [], verificationProfile = 'FULL_AUTHORITY_CONFORMANCE' } = {}) {
+export function evaluateAdapter(adapter, { baseline, operator = 'VERIFY', trustedAuthorityEvidence = [], verificationProfile = 'FULL_AUTHORITY_CONFORMANCE', baselineDigest, requireHistory = false } = {}) {
   if (!operators.includes(operator)) throw new Error('Use executeRepair for explicitly authorized ACT');
   if (!object(adapter) || adapter.schemaVersion !== 1 || !nonempty(adapter.productId) || !nonempty(adapter.revision) || !object(adapter.capabilities)) {
     throw new Error('Adapter requires schemaVersion:1, productId, revision and capabilities object');
   }
   if (!Array.isArray(trustedAuthorityEvidence)) throw new Error('trustedAuthorityEvidence must be an operator-supplied array');
   if (adapter.authenticationRole !== undefined && !['RELYING_PARTY', 'IDENTITY_AUTHORITY'].includes(adapter.authenticationRole)) throw new Error('Invalid authenticationRole');
+  if (baselineDigest && (!baseline || digest(baseline) !== baselineDigest)) throw new Error('BASELINE_PIN_MISMATCH');
+  if (requireHistory && (!baseline || !baselineDigest)) throw new Error('TRUSTED_BASELINE_REQUIRED');
   const known = new Set(CAPABILITIES.map(capability => capability.id));
   const unknown = Object.keys(adapter.capabilities).filter(id => !known.has(id)).sort();
   const unknownDeclarations = [...unknown];
@@ -87,34 +91,42 @@ export function evaluateAdapter(adapter, { baseline, operator = 'VERIFY', truste
   }
   const verification = regressions.length || capabilities.some(entry => entry.verification === 'FAIL') ? 'FAIL'
     : unknown.length || capabilities.some(entry => entry.verification === 'INDETERMINATE') ? 'INDETERMINATE' : 'PASS';
-  return applyVerificationProfile({ schemaVersion: 1, catalogVersion: CATALOG_VERSION, productId: adapter.productId, revision: adapter.revision,
+  const report = applyVerificationProfile({ schemaVersion: 1, catalogVersion: CATALOG_VERSION, productId: adapter.productId, revision: adapter.revision,
     operator, verification, authenticationRole: adapter.authenticationRole || 'UNSPECIFIED', capabilities, unknownCapabilities: unknown, unknownDeclarations, regressions,
     decisions: capabilities.filter(entry => !['PASS', 'NOT_APPLICABLE'].includes(entry.verification)).map(entry => ({ id: entry.id,
       action: entry.applicability === 'INDETERMINATE' ? 'ESTABLISH_APPLICABILITY'
         : entry.implementation !== 'ESTABLISHED' ? 'ESTABLISH_IMPLEMENTATION' : 'VERIFY_OR_REPAIR' })) }, verificationProfile, baseline);
+  return { ...report, assurance: { source_integrity: 'NOT_ASSESSED', capability_conformance: report.profile_verification, runtime_acceptance: 'INDETERMINATE', historical_continuity: baselineDigest ? (report.regressions.length || report.profile_regressions?.length ? 'FAIL' : 'PASS') : 'INDETERMINATE' }, verification_scope: 'DECLARED_CAPABILITY_CONFORMANCE' };
 }
 
 /** Product integrations supply bounded handlers; AUTH never executes manifest commands. */
-export async function executeRepair(adapter, { capabilityId, authorization, handlers, observe, baseline, trustedAuthorityEvidence = [], verificationProfile = 'FULL_AUTHORITY_CONFORMANCE' } = {}) {
+export async function executeRepair(adapter, { capabilityId, authorization, handlers, observe, baseline, baselineDigest, requireHistory = false, trustedAuthorityEvidence = [], verificationProfile = 'FULL_AUTHORITY_CONFORMANCE' } = {}) {
   if (!authorization || authorization.authorized !== true || authorization.productId !== adapter?.productId ||
       authorization.revision !== adapter?.revision || authorization.capabilityId !== capabilityId) {
     throw new Error('ACT requires explicit product/revision/capability-scoped authorization');
   }
-  const before = evaluateAdapter(adapter, { baseline, trustedAuthorityEvidence, verificationProfile });
+  const before = evaluateAdapter(adapter, { baseline, baselineDigest, requireHistory, trustedAuthorityEvidence, verificationProfile });
   const capability = before.capabilities.find(entry => entry.id === capabilityId);
   if (!capability || capability.applicability !== 'TRUE') throw new Error('ACT requires established applicability');
   const handler = handlers instanceof Map ? handlers.get(capabilityId) : undefined;
   if (typeof handler !== 'function' || typeof observe !== 'function') throw new Error('No supported repair handler and observer');
-  let failure;
-  try { await handler(Object.freeze({ productId: adapter.productId, revision: adapter.revision, capabilityId })); }
+  let failure, outcome;
+  const context = Object.freeze({ productId: adapter.productId, revision: adapter.revision, capabilityId, runId: randomUUID() });
+  try { outcome = await handler(context); }
   catch (error) { failure = typeof error?.code === 'string' && /^[A-Z][A-Z0-9_]{1,79}$/.test(error.code) ? error.code : 'REPAIR_FAILED'; }
-  const observed = await observe();
+  const completedAt = Date.now();
+  const challenge = Object.freeze({ ...context, resultingRevision: outcome?.revision || adapter.revision, completedAt });
+  const observed = await observe(challenge);
+  const proof = observed?.postRepairProof;
+  const fresh = proof?.runId === context.runId && proof?.capabilityId === capabilityId && proof?.revision === challenge.resultingRevision && observed?.revision === challenge.resultingRevision && Number.isFinite(proof?.observedAt) && proof.observedAt >= completedAt && proof.observedAt <= Date.now() && Array.isArray(proof?.checks) && proof.checks.length > 0 && capability.checks.every(check => proof.checks.includes(check.id));
   if (observed.productId !== adapter.productId) throw new Error('Repair observer changed product identity');
   let report = evaluateAdapter(observed, { baseline: before, operator: 'VERIFY', trustedAuthorityEvidence, verificationProfile });
   if (baseline) {
-    const historical = evaluateAdapter(observed, { baseline, operator: 'VERIFY', trustedAuthorityEvidence, verificationProfile });
-    if (historical.regressions.length) report = { ...report, verification: 'FAIL', regressions: [...report.regressions, ...historical.regressions] };
+    const historical = evaluateAdapter(observed, { baseline, baselineDigest, requireHistory, operator: 'VERIFY', trustedAuthorityEvidence, verificationProfile });
+    if (historical.regressions.length || historical.profile_regressions.length) report = { ...report, verification: 'FAIL', full_verification: 'FAIL', profile_verification: 'FAIL', regressions: [...report.regressions, ...historical.regressions], profile_regressions: historical.profile_regressions };
+    report.assurance.historical_continuity = historical.assurance.historical_continuity;
   }
-  return { ...report, operator: 'ACT', verificationRequired: true, verifiedAfterAct: true,
+  return { ...report, operator: 'ACT', verificationRequired: true, verifiedAfterAct: fresh,
+    ...(!fresh ? { verification: report.verification === 'FAIL' ? 'FAIL' : 'INDETERMINATE', full_verification: report.full_verification === 'FAIL' ? 'FAIL' : 'INDETERMINATE', profile_verification: report.profile_verification === 'FAIL' ? 'FAIL' : 'INDETERMINATE', error: 'FRESH_POST_REPAIR_PROOF_REQUIRED' } : {}),
     ...(failure ? { verification: 'FAIL', full_verification: 'FAIL', profile_verification: 'FAIL', error: failure } : {}) };
 }
