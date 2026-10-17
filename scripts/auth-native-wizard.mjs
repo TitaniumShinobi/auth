@@ -180,6 +180,25 @@ function alignmentTestSource(role) {
   return `import test from 'node:test';\nimport assert from 'node:assert/strict';\nconst base=process.env.AUTH_BASE_URL;\ntest('authority metadata smoke only, not runtime acceptance',async()=>{assert.ok(base,'AUTH_BASE_URL is required');const health=await fetch(new URL('/health',base));assert.equal(health.ok,true);const metadata=await fetch(new URL('/.well-known/oauth-authorization-server',base));assert.equal(metadata.ok,true);const body=await metadata.json();assert.equal(new URL(body.issuer).origin,new URL(base).origin);assert.ok(body.code_challenge_methods_supported?.includes('S256'));});\n`;
 }
 
+function entrypointTestSource(contract) {
+  const expected = JSON.stringify({ authenticationRole: contract.authenticationRole, authenticationRuntime: contract.authenticationRuntime, authenticationEntrypoint: contract.authenticationEntrypoint, productId: contract.productId });
+  return `import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile, lstat, realpath } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const expected = ${expected};
+test('authentication ownership and entrypoint remain established', async () => {
+  const contract = JSON.parse(await readFile(path.join(root, 'auth-standards.json'), 'utf8'));
+  for (const [key, value] of Object.entries(expected)) assert.equal(contract[key], value, 'AUTH_CONTRACT_DRIFT: ' + key);
+  const entrypoint = path.join(root, expected.authenticationEntrypoint);
+  assert.ok((await lstat(entrypoint)).isFile(), 'AUTH_ENTRYPOINT_NOT_REGULAR');
+  assert.equal(await realpath(entrypoint), entrypoint, 'AUTH_ENTRYPOINT_REDIRECTED');
+});
+`;
+}
+
 export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevision = 'HEAD', productId = 'product', receiptPath, authenticationRole, authenticationRuntime, authenticationEntrypoint } = {}) {
   if (!sourceRoot || !receiptPath) throw new Error('SOURCE_AND_RECEIPT_REQUIRED');
   if (!['IDENTITY_AUTHORITY','RELYING_PARTY'].includes(authenticationRole)) throw new Error('AUTHENTICATION_ROLE_REQUIRED');
@@ -191,7 +210,7 @@ export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevisi
   if (!assessment.authEvidence.length) throw new Error('ALIGNMENT_REQUIRES_EXISTING_AUTH');
   if (assessment.prohibitedPersistentArtifacts.length) throw new Error('PERSISTENT_AUTH_ARTIFACT_MIGRATION_REQUIRED');
   const contract = { schema: 'life.auth.existing-contract/1', profile: assessment.stack.runtime === 'python' ? PYTHON_FLASK_SQLITE_PROFILE : NATIVE_PROFILE, authenticationRole, authenticationRuntime: assessment.stack.runtime, authenticationEntrypoint, productId, classification: assessment.classification, capabilities: assessment.capabilities.map(item => item.id), observations: assessment.capabilities, verification: 'PENDING_RUNTIME_EVIDENCE' };
-  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(alignmentTestSource(authenticationRole))]];
+  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(alignmentTestSource(authenticationRole))], ['test/auth-entrypoint.test.mjs', Buffer.from(entrypointTestSource(contract))]];
   const operations = [];
   for (const [relative, bytes] of generated) {
     if (await exists(inside(assessment.targetRoot, relative))) throw new Error(`EXISTING_PRODUCT_FILE_REVIEW_REQUIRED:${relative}`);

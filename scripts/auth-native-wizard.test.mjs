@@ -80,7 +80,7 @@ test('existing authentication is assessed and aligned without overwriting produc
     const assessment = await assessNativeTarget(root); assert.equal(assessment.classification, 'COMPATIBLE'); assert.equal(assessment.executionClassification, 'AGENT_INTEGRATION_REQUIRED');
     const before = await readFile(path.join(root, 'src', 'auth', 'existing.ts'));
     const plan = await planNativeAlignment(root, { authenticationRole: 'IDENTITY_AUTHORITY', authenticationEntrypoint: 'src/auth/existing.ts', sourceRoot, productId: 'existing', receiptPath: receipt });
-    assert.equal(plan.mode, 'align-existing'); assert.deepEqual(plan.operations.map(item => item.path), ['auth-standards.json', 'test/auth-contract.test.mjs']);
+    assert.equal(plan.mode, 'align-existing'); assert.deepEqual(plan.operations.map(item => item.path), ['auth-standards.json', 'test/auth-contract.test.mjs', 'test/auth-entrypoint.test.mjs']);
     await applyNativePlan(plan, { sourceRoot, authorized: true });
     assert.deepEqual(await readFile(path.join(root, 'src', 'auth', 'existing.ts')), before);
     assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS');
@@ -220,4 +220,43 @@ test('explicit migration records lineage and crash recovery never leaves a mixed
       } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); await rm(nextReceipt, { force: true }); }
     }
   } finally { await rm(source, { recursive: true, force: true }); }
+});
+
+test('installed entrypoint protection survives unrelated development without AUTH and fails contract loss', async () => {
+  const { mkdir, rename, symlink } = await import('node:fs/promises');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'auth-entrypoint-'));
+  const receipt = `${root}-receipt.json`;
+  try {
+    await mkdir(path.join(root, 'src/auth'), { recursive: true });
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ dependencies: { express: '5' } }));
+    const entry = path.join(root, 'src/auth/existing.js');
+    await writeFile(entry, '// oauth session refresh');
+    const plan = await planNativeAlignment(root, { sourceRoot, productId: 'fixture', receiptPath: receipt, authenticationRole: 'RELYING_PARTY', authenticationEntrypoint: 'src/auth/existing.js' });
+    await applyNativePlan(plan, { sourceRoot, authorized: true });
+    const testPath = path.join(root, 'test/auth-entrypoint.test.mjs');
+    const childEnv = { ...process.env }; delete childEnv.NODE_TEST_CONTEXT;
+    const run = () => spawnSync(process.execPath, ['--test', testPath], { cwd: os.tmpdir(), env: childEnv, encoding: 'utf8' });
+    assert.equal(run().status, 0);
+    await writeFile(path.join(root, 'unrelated.txt'), 'new feature');
+    await writeFile(entry, '// legitimate auth implementation development');
+    assert.equal(run().status, 0);
+    const contractPath = path.join(root, 'auth-standards.json');
+    const bytes = await readFile(contractPath);
+    for (const key of ['authenticationRole', 'authenticationRuntime', 'authenticationEntrypoint', 'productId']) {
+      const changed = JSON.parse(bytes); changed[key] = 'changed';
+      await writeFile(contractPath, JSON.stringify(changed));
+      assert.notEqual(run().status, 0, key);
+    }
+    await writeFile(contractPath, bytes);
+    await rename(entry, `${entry}.old`);
+    assert.notEqual(run().status, 0);
+    await symlink(`${entry}.old`, entry);
+    assert.notEqual(run().status, 0);
+    await rm(entry); await mkdir(entry);
+    assert.notEqual(run().status, 0);
+    await rm(entry, { recursive: true }); await rename(`${entry}.old`, entry);
+    assert.equal(run().status, 0);
+    assert.equal(await readFile(path.join(root, 'unrelated.txt'), 'utf8'), 'new feature');
+    assert.doesNotMatch(await readFile(testPath, 'utf8'), /auth-native-wizard|sourceRoot|fetch\(/);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
 });
