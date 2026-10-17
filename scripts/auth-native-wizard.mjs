@@ -180,6 +180,28 @@ function alignmentTestSource(role) {
   return `import test from 'node:test';\nimport assert from 'node:assert/strict';\nconst base=process.env.AUTH_BASE_URL;\ntest('authority metadata smoke only, not runtime acceptance',async()=>{assert.ok(base,'AUTH_BASE_URL is required');const health=await fetch(new URL('/health',base));assert.equal(health.ok,true);const metadata=await fetch(new URL('/.well-known/oauth-authorization-server',base));assert.equal(metadata.ok,true);const body=await metadata.json();assert.equal(new URL(body.issuer).origin,new URL(base).origin);assert.ok(body.code_challenge_methods_supported?.includes('S256'));});\n`;
 }
 
+function regressionWorkflow(existing = false) {
+  return `name: Authentication regression
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  authentication-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Require supported Node
+        run: node -e "if (Number(process.versions.node.split('.')[0]) < 20) process.exit(1)"
+${existing ? `      - name: Verify product authentication contracts
+        run: node --test test/auth-entrypoint.test.mjs test/auth-contract.test.mjs
+` : `      - run: npm ci
+      - run: npm test
+`}`;
+}
+
 function entrypointTestSource(contract) {
   const expected = JSON.stringify({ authenticationRole: contract.authenticationRole, authenticationRuntime: contract.authenticationRuntime, authenticationEntrypoint: contract.authenticationEntrypoint, productId: contract.productId });
   return `import test from 'node:test';
@@ -210,7 +232,7 @@ export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevisi
   if (!assessment.authEvidence.length) throw new Error('ALIGNMENT_REQUIRES_EXISTING_AUTH');
   if (assessment.prohibitedPersistentArtifacts.length) throw new Error('PERSISTENT_AUTH_ARTIFACT_MIGRATION_REQUIRED');
   const contract = { schema: 'life.auth.existing-contract/1', profile: assessment.stack.runtime === 'python' ? PYTHON_FLASK_SQLITE_PROFILE : NATIVE_PROFILE, authenticationRole, authenticationRuntime: assessment.stack.runtime, authenticationEntrypoint, productId, classification: assessment.classification, capabilities: assessment.capabilities.map(item => item.id), observations: assessment.capabilities, verification: 'PENDING_RUNTIME_EVIDENCE' };
-  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(alignmentTestSource(authenticationRole))], ['test/auth-entrypoint.test.mjs', Buffer.from(entrypointTestSource(contract))]];
+  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(alignmentTestSource(authenticationRole))], ['test/auth-entrypoint.test.mjs', Buffer.from(entrypointTestSource(contract))], ['.github/workflows/authentication-regression.yml', Buffer.from(regressionWorkflow(true))]];
   const operations = [];
   for (const [relative, bytes] of generated) {
     if (await exists(inside(assessment.targetRoot, relative))) throw new Error(`EXISTING_PRODUCT_FILE_REVIEW_REQUIRED:${relative}`);
@@ -251,7 +273,7 @@ export async function discoverNativeTarget(targetRoot) {
 function generatedPackage(productId) {
   return {
     name: productId.replace(/[^a-z0-9._-]/gi, '-').toLowerCase(), version: '0.1.0', private: true, type: 'module',
-    scripts: { build: 'tsc -p tsconfig.json', 'prisma:generate': 'prisma generate', 'prisma:migrate': 'node scripts/prepare-database.mjs && prisma migrate deploy', start: 'node dist/index.js', test: 'node --test test/*.test.mjs' },
+    scripts: { build: 'tsc -p tsconfig.json', 'prisma:generate': 'prisma generate', 'prisma:migrate': 'node scripts/prepare-database.mjs && prisma migrate deploy', start: 'node dist/index.js', pretest: 'npm run prisma:generate && npm run build', test: 'node --test test/*.test.mjs' },
     engines: { node: '>=20' },
     dependencies: { '@prisma/client': '6.12.0', express: '^5.1.0', jose: '^6.1.2', redis: '^5.10.0' },
     devDependencies: { '@types/node': '^26.0.0', prisma: '6.12.0', typescript: '^6.0.3' },
@@ -279,6 +301,7 @@ export async function planNativeTarget(targetRoot, { sourceRoot, sourceRevision 
   }
   for (const [relative, bytes] of [
     ['package.json', Buffer.from(json(generatedPackage(productId)))],
+    ['.github/workflows/authentication-regression.yml', Buffer.from(regressionWorkflow())],
     ['tsconfig.json', Buffer.from(json(generatedTsconfig))],
     ['auth-standards.json', Buffer.from(json({ schema: 'life.auth.native-contract/1', profile: NATIVE_PROFILE, productId, capabilities: ['oauth-oidc','pkce','callbacks','credentials','magic-email','sessions','cookies','refresh-rotation','replay-protection','revocation','logout','prisma-persistence','native-cli','mcp-resource-server'] }))],
   ]) {
@@ -300,6 +323,7 @@ async function bytesFor(plan, operation, sourceRoot) {
     return bytes;
   }
   if (operation.sourcePath) return profileBytes(sourceRoot, plan.source.revision, operation.sourcePath);
+  if (operation.path === '.github/workflows/authentication-regression.yml') return Buffer.from(regressionWorkflow());
   if (operation.path === 'package.json') return Buffer.from(json(generatedPackage(plan.productId)));
   if (operation.path === 'tsconfig.json') return Buffer.from(json(generatedTsconfig));
   if (operation.path === 'auth-standards.json') return Buffer.from(json({ schema: 'life.auth.native-contract/1', profile: NATIVE_PROFILE, productId: plan.productId, capabilities: ['oauth-oidc','pkce','callbacks','credentials','magic-email','sessions','cookies','refresh-rotation','replay-protection','revocation','logout','prisma-persistence','native-cli','mcp-resource-server'] }));

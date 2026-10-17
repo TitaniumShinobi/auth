@@ -80,7 +80,7 @@ test('existing authentication is assessed and aligned without overwriting produc
     const assessment = await assessNativeTarget(root); assert.equal(assessment.classification, 'COMPATIBLE'); assert.equal(assessment.executionClassification, 'AGENT_INTEGRATION_REQUIRED');
     const before = await readFile(path.join(root, 'src', 'auth', 'existing.ts'));
     const plan = await planNativeAlignment(root, { authenticationRole: 'IDENTITY_AUTHORITY', authenticationEntrypoint: 'src/auth/existing.ts', sourceRoot, productId: 'existing', receiptPath: receipt });
-    assert.equal(plan.mode, 'align-existing'); assert.deepEqual(plan.operations.map(item => item.path), ['auth-standards.json', 'test/auth-contract.test.mjs', 'test/auth-entrypoint.test.mjs']);
+    assert.equal(plan.mode, 'align-existing'); assert.deepEqual(plan.operations.map(item => item.path), ['auth-standards.json', 'test/auth-contract.test.mjs', 'test/auth-entrypoint.test.mjs', '.github/workflows/authentication-regression.yml']);
     await applyNativePlan(plan, { sourceRoot, authorized: true });
     assert.deepEqual(await readFile(path.join(root, 'src', 'auth', 'existing.ts')), before);
     assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS');
@@ -258,5 +258,23 @@ test('installed entrypoint protection survives unrelated development without AUT
     assert.equal(run().status, 0);
     assert.equal(await readFile(path.join(root, 'unrelated.txt'), 'utf8'), 'new feature');
     assert.doesNotMatch(await readFile(testPath, 'utf8'), /auth-native-wizard|sourceRoot|fetch\(/);
+  } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
+});
+
+test('setup creates automatic product CI and rebuilds before behavioral tests', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'auth-gate-'));
+  const receipt = `${root}-receipt.json`;
+  try {
+    const plan = await planNativeTarget(root, { sourceRoot, receiptPath: receipt });
+    await applyNativePlan(plan, { sourceRoot, authorized: true });
+    const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+    assert.equal(pkg.scripts.pretest, 'npm run prisma:generate && npm run build');
+    assert.equal(pkg.scripts.test, 'node --test test/*.test.mjs');
+    const workflow = await readFile(path.join(root, '.github/workflows/authentication-regression.yml'), 'utf8');
+    assert.match(workflow, /on: \[push, pull_request, workflow_dispatch\]/);
+    assert.match(workflow, /run: npm ci/); assert.match(workflow, /run: npm test/);
+    assert.doesNotMatch(workflow, /continue-on-error|auth-verifier|AUTH_CHECKOUT|pull_request_target/);
+    assert.match(workflow, /persist-credentials: false/);
+    assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS');
   } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
 });

@@ -43,15 +43,26 @@ test('credentials, secure session, OAuth PKCE, refresh replay, revocation and MC
   assert.equal((await fetch(`${issuer}/api/me`, { headers: { cookie: sessionCookie } })).status, 200);
   assert.equal((await fetch(`${issuer}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'person@example.invalid', password: 'wrong password' }) })).status, 401);
 
+  const returning = await fetch(`${issuer}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'person@example.invalid', password: 'correct horse battery staple' }) });
+  assert.equal(returning.status, 200);
+  const returningCookie = (returning.headers.get('set-cookie') || '').split(';')[0];
+  const originalIdentity = await fetch(`${issuer}/api/me`, { headers: { cookie: sessionCookie } }).then(r => r.json());
+  const returningIdentity = await fetch(`${issuer}/api/me`, { headers: { cookie: returningCookie } }).then(r => r.json());
+  assert.equal(returningIdentity.id, originalIdentity.id);
+
   const verifier = randomBytes(32).toString('base64url'), challenge = createHash('sha256').update(verifier).digest('base64url');
   const authorize = new URL(`${issuer}/oauth/authorize`); authorize.search = new URLSearchParams({ response_type: 'code', client_id: 'fixture', redirect_uri: 'http://127.0.0.1:45678/callback', scope: 'openid mcp.read', state: 'opaque-state', nonce: 'opaque-nonce', code_challenge: challenge, code_challenge_method: 'S256' });
   const authorization = await fetch(authorize, { headers: { cookie: sessionCookie }, redirect: 'manual' }); assert.equal(authorization.status, 303); const callback = new URL(authorization.headers.get('location')); assert.equal(callback.searchParams.get('state'), 'opaque-state');
   const token = await fetch(`${issuer}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code: callback.searchParams.get('code'), redirect_uri: 'http://127.0.0.1:45678/callback', client_id: 'fixture', code_verifier: verifier }) }); assert.equal(token.status, 200); const issued = await token.json(); assert.ok(issued.access_token); assert.ok(issued.refresh_token);
+  const codeReplay = await fetch(`${issuer}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', code: callback.searchParams.get('code'), redirect_uri: 'http://127.0.0.1:45678/callback', client_id: 'fixture', code_verifier: verifier }) });
+  assert.equal(codeReplay.status, 400);
   const authenticatedMcp = await fetch(`${issuer}/mcp`, { method: 'POST', headers: { authorization: `Bearer ${issued.access_token}` } }); assert.equal(authenticatedMcp.status, 501);
   const refreshBody = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: issued.refresh_token, client_id: 'fixture', scope: 'openid mcp.read' }); const rotated = await fetch(`${issuer}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: refreshBody }); assert.equal(rotated.status, 200);
   const replay = await fetch(`${issuer}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: refreshBody }); assert.equal(replay.status, 400);
   const rotatedBody = await rotated.json(); const revokedFamily = await fetch(`${issuer}/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: rotatedBody.refresh_token, client_id: 'fixture' }) }); assert.equal(revokedFamily.status, 400);
   assert.equal((await fetch(`${issuer}/api/auth/logout`, { method: 'POST', headers: { cookie: sessionCookie } })).status, 204);
+  assert.equal((await fetch(`${issuer}/api/me`, { headers: { cookie: sessionCookie } })).status, 401);
+  assert.equal((await fetch(`${issuer}/api/me`, { headers: { cookie: returningCookie } })).status, 200);
 });
 
 test('magic email is expiring and single-use; OIDC callback validates state, issuer, audience and nonce', async () => {
