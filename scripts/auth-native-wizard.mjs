@@ -517,7 +517,7 @@ export async function migrateNativeTarget(targetRoot, receiptPath, { sourceRoot,
   const priorPaths = Object.keys(prior.files).sort();
   const targetEntries = [...profileEntries(sourceRoot, targetSource.revision), { path: 'package-lock.json', sourcePath: 'package-lock.json' }];
   const targetSourcePaths = new Set(targetEntries.map(item => item.path));
-  const priorSourcePaths = new Set(priorPaths.filter(relative => !['package.json', 'tsconfig.json', 'auth-standards.json'].includes(relative)));
+  const priorSourcePaths = new Set(priorPaths.filter(relative => !['package.json', 'tsconfig.json', 'auth-standards.json', '.github/workflows/authentication-regression.yml'].includes(relative)));
   if (targetSourcePaths.size !== priorSourcePaths.size || [...targetSourcePaths].some(relative => !priorSourcePaths.has(relative))) throw new Error('MIGRATION_FILESET_CHANGE_REQUIRES_REVIEWED_PROFILE');
   const targetFiles = {}, operations = [];
   for (const relative of priorPaths) {

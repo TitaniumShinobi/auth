@@ -278,3 +278,21 @@ test('setup creates automatic product CI and rebuilds before behavioral tests', 
     assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS');
   } finally { await rm(root, { recursive: true, force: true }); await rm(receipt, { force: true }); }
 });
+
+test('alignment never overwrites an existing product regression workflow', async () => {
+  const { mkdir } = await import('node:fs/promises');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'auth-workflow-conflict-'));
+  try {
+    await mkdir(path.join(root, 'src/auth'), { recursive: true });
+    await mkdir(path.join(root, '.github/workflows'), { recursive: true });
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ dependencies: { express: '5' }, scripts: { test: 'existing-product-tests' } }));
+    await writeFile(path.join(root, 'src/auth/existing.js'), '// oauth session');
+    const workflow = path.join(root, '.github/workflows/authentication-regression.yml');
+    await writeFile(workflow, 'existing product workflow');
+    const packageBefore = await readFile(path.join(root, 'package.json'));
+    await assert.rejects(planNativeAlignment(root, { sourceRoot, receiptPath: `${root}-receipt`, authenticationRole: 'RELYING_PARTY', authenticationEntrypoint: 'src/auth/existing.js' }), /EXISTING_PRODUCT_FILE_REVIEW_REQUIRED/);
+    assert.equal(await readFile(workflow, 'utf8'), 'existing product workflow');
+    assert.deepEqual(await readFile(path.join(root, 'package.json')), packageBefore);
+    await absent(path.join(root, 'auth-standards.json'));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
