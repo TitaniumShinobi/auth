@@ -157,3 +157,21 @@ test('native source-only PASS remains valid but --release cannot silently inheri
     const invalid=run([...args,'--release']);assert.equal(invalid.status,1);assert.match(invalid.stderr,/UNSUPPORTED_NATIVE_RELEASE_FLAG/);assert.equal(await readFile(receipt,'utf8'),bytes);assert.equal(await readFile(path.join(root,'app.mjs'),'utf8'),source);
   } finally {await rm(root,{recursive:true,force:true});}
 });
+
+test('reviewed repair flags require authorization, digest, and exclusive registry selection', () => {
+  const base = ['wizard','--adapter','/missing','--operator','ACT','--repo','/tmp','--capability','signin','--repair-spec','/missing'];
+  for (const [flags, error] of [[[], /EXPLICIT_AUTHORIZATION_REQUIRED/], [['--authorize'], /REVIEWED_SPEC_AND_DIGEST_REQUIRED/], [['--authorize','--act-module','/missing'], /REPAIR_SPEC_CONTEXT_INVALID/]]) {
+    const result = run([...base,...flags]); assert.equal(result.status,1); assert.match(result.stderr,error);
+  }
+  const result=run(['wizard','--adapter','/missing','--operator','VERIFY','--repair-spec','/missing']);
+  assert.equal(result.status,1); assert.match(result.stderr,/ACT_FLAGS_REQUIRE_ACT_OPERATOR/);
+});
+
+test('reviewed spec digest mismatch fails before reading product or adapter', async () => {
+  const directory=await mkdtemp(path.join(os.tmpdir(),'auth-cli-spec-'));
+  try {
+    const spec=path.join(directory,'spec.json'); await writeFile(spec,'{}');
+    const result=run(['wizard','--adapter','/missing','--operator','ACT','--repo','/missing','--capability','signin','--authorize','--repair-spec',spec,'--repair-sha256','0'.repeat(64)]);
+    assert.equal(result.status,1); assert.match(result.stderr,/REVIEWED_SPEC_DIGEST_MISMATCH/);
+  } finally {await rm(directory,{recursive:true,force:true});}
+});

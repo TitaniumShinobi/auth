@@ -8,14 +8,14 @@
     "auth": "bin/auth"
   },
   "scripts": {
-    "build": "bin/node20 --check scripts/auth-cli.mjs && bin/node20 --check scripts/auth-native-wizard.mjs",
+    "build": "bin/node20 --check scripts/auth-cli.mjs && bin/node20 --check scripts/auth-native-wizard.mjs && bin/node20 --check scripts/auth-existing-repair.mjs && bin/node20 --check scripts/auth-product-test.mjs",
     "auth": "bin/auth",
     "prisma:generate": "bin/node20 node_modules/prisma/build/index.js generate",
     "prisma:migrate": "bin/node20 node_modules/prisma/build/index.js migrate deploy",
     "test": "bin/npm20 run test:native && bin/npm20 run test:standards && bin/npm20 run test:wizard && bin/npm20 run build",
     "test:wizard": "bin/node20 --test scripts/auth-cli.test.mjs",
     "test:durability": "bin/node20 --test --test-concurrency=1 scripts/auth-native-wizard.test.mjs",
-    "test:native": "bin/node20 --test --test-concurrency=1 scripts/auth-native-wizard.test.mjs",
+    "test:native": "bin/node20 --test --test-concurrency=1 scripts/auth-native-wizard.test.mjs scripts/auth-existing-repair.test.mjs scripts/auth-product-test.test.mjs",
     "test:standards": "bin/node20 --test scripts/auth-assurance.test.mjs src/test/auth-wizard.test.mjs src/test/auth-lifecycle.test.mjs src/test/auth-blocker-handoff.test.mjs src/test/auth-verification-profiles.test.mjs src/test/resource-authorization-wizard.test.mjs"
   },
   "dependencies": {

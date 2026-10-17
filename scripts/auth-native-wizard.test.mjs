@@ -296,3 +296,22 @@ test('alignment never overwrites an existing product regression workflow', async
     await absent(path.join(root, 'auth-standards.json'));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('existing behavioral alignment wires the same product command into local test and CI', async () => {
+  const root=await mkdtemp(path.join(os.tmpdir(),'auth-behavior-align-'));
+  try {
+    const {mkdir}=await import('node:fs/promises'); await mkdir(path.join(root,'src'));
+    await writeFile(path.join(root,'package.json'),JSON.stringify({devDependencies:{typescript:'*'}}));
+    await writeFile(path.join(root,'src/index.ts'),'// unchanged authentication source');
+    await writeFile(path.join(root,'check.mjs'),"import fs from 'node:fs'; process.exit(fs.readFileSync('src/index.ts','utf8').includes('BROKEN')?1:0);");
+    const plan=await planNativeAlignment(root,{sourceRoot,receiptPath:path.join(root,'../'+path.basename(root)+'.receipt'),authenticationRole:'RELYING_PARTY',authenticationRuntime:'node',authenticationEntrypoint:'src/index.ts',behavioralTest:{argv:['$NODE','check.mjs'],timeoutMs:1000}});
+    const files=Object.fromEntries(plan.operations.map(op=>[op.path,Buffer.from(op.inlineBase64,'base64').toString()]));
+    assert.match(files['.github/workflows/authentication-regression.yml'],/node test\/auth-behavior.mjs/);
+    for(const [name,content] of Object.entries(files)){await mkdir(path.dirname(path.join(root,name)),{recursive:true});await writeFile(path.join(root,name),content);}
+    const env={...process.env};delete env.NODE_TEST_CONTEXT;
+    const runBehavior=()=>spawnSync(process.execPath,[path.join(root,'test/auth-behavior.mjs')],{env});
+    assert.equal(runBehavior().status,0);
+    await writeFile(path.join(root,'unrelated.txt'),'ordinary development');assert.equal(runBehavior().status,0);
+    await writeFile(path.join(root,'src/index.ts'),'BROKEN');assert.equal(runBehavior().status,1);
+  } finally {await rm(root,{recursive:true,force:true});}
+});

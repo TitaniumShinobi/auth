@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { productTestSource } from './auth-product-test.mjs';
 
 export const NATIVE_PROFILE = 'typescript-node-express-prisma/2';
 export const PYTHON_FLASK_SQLITE_PROFILE = 'python-flask-sqlite/1';
@@ -180,7 +181,7 @@ function alignmentTestSource(role) {
   return `import test from 'node:test';\nimport assert from 'node:assert/strict';\nconst base=process.env.AUTH_BASE_URL;\ntest('authority metadata smoke only, not runtime acceptance',async()=>{assert.ok(base,'AUTH_BASE_URL is required');const health=await fetch(new URL('/health',base));assert.equal(health.ok,true);const metadata=await fetch(new URL('/.well-known/oauth-authorization-server',base));assert.equal(metadata.ok,true);const body=await metadata.json();assert.equal(new URL(body.issuer).origin,new URL(base).origin);assert.ok(body.code_challenge_methods_supported?.includes('S256'));});\n`;
 }
 
-function regressionWorkflow(existing = false) {
+function regressionWorkflow(existing = false, behavioral = false) {
   return `name: Authentication regression
 on: [push, pull_request, workflow_dispatch]
 permissions:
@@ -196,7 +197,7 @@ jobs:
       - name: Require supported Node
         run: node -e "if (Number(process.versions.node.split('.')[0]) < 20) process.exit(1)"
 ${existing ? `      - name: Verify product authentication contracts
-        run: node --test test/auth-entrypoint.test.mjs test/auth-contract.test.mjs
+        run: ${behavioral ? 'node --test test/auth-entrypoint.test.mjs && node test/auth-behavior.mjs' : 'node --test test/auth-entrypoint.test.mjs test/auth-contract.test.mjs'}
 ` : `      - run: npm ci
       - run: npm test
 `}`;
@@ -221,7 +222,7 @@ test('authentication ownership and entrypoint remain established', async () => {
 `;
 }
 
-export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevision = 'HEAD', productId = 'product', receiptPath, authenticationRole, authenticationRuntime, authenticationEntrypoint } = {}) {
+export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevision = 'HEAD', productId = 'product', receiptPath, authenticationRole, authenticationRuntime, authenticationEntrypoint, behavioralTest } = {}) {
   if (!sourceRoot || !receiptPath) throw new Error('SOURCE_AND_RECEIPT_REQUIRED');
   if (!['IDENTITY_AUTHORITY','RELYING_PARTY'].includes(authenticationRole)) throw new Error('AUTHENTICATION_ROLE_REQUIRED');
   const assessment = await assessNativeTarget(targetRoot, { runtime: authenticationRuntime });
@@ -232,7 +233,8 @@ export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevisi
   if (!assessment.authEvidence.length) throw new Error('ALIGNMENT_REQUIRES_EXISTING_AUTH');
   if (assessment.prohibitedPersistentArtifacts.length) throw new Error('PERSISTENT_AUTH_ARTIFACT_MIGRATION_REQUIRED');
   const contract = { schema: 'life.auth.existing-contract/1', profile: assessment.stack.runtime === 'python' ? PYTHON_FLASK_SQLITE_PROFILE : NATIVE_PROFILE, authenticationRole, authenticationRuntime: assessment.stack.runtime, authenticationEntrypoint, productId, classification: assessment.classification, capabilities: assessment.capabilities.map(item => item.id), observations: assessment.capabilities, verification: 'PENDING_RUNTIME_EVIDENCE' };
-  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(alignmentTestSource(authenticationRole))], ['test/auth-entrypoint.test.mjs', Buffer.from(entrypointTestSource(contract))], ['.github/workflows/authentication-regression.yml', Buffer.from(regressionWorkflow(true))]];
+  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(behavioralTest ? `import './auth-behavior.mjs';\n` : alignmentTestSource(authenticationRole))], ['test/auth-entrypoint.test.mjs', Buffer.from(entrypointTestSource(contract))], ['.github/workflows/authentication-regression.yml', Buffer.from(regressionWorkflow(true, Boolean(behavioralTest)))]];
+  if (behavioralTest) generated.push(['test/auth-behavior.mjs', Buffer.from(productTestSource(behavioralTest))]);
   const operations = [];
   for (const [relative, bytes] of generated) {
     if (await exists(inside(assessment.targetRoot, relative))) throw new Error(`EXISTING_PRODUCT_FILE_REVIEW_REQUIRED:${relative}`);
