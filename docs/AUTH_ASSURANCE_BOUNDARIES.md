@@ -42,3 +42,7 @@ ACT passes `{productId, revision, capabilityId, runId}` to the supported handler
 The observer must execute affected behavior after completion and return its adapter plus `postRepairProof: {runId, capabilityId, revision, observedAt, checks}`. `observedAt` is milliseconds since epoch and `checks` enumerates every affected catalog check exercised. Exact run/capability/resulting-revision binding and time bounds are enforced. Cached observations without fresh proof return `FRESH_POST_REPAIR_PROOF_REQUIRED`, never verified success. A trusted observer remains responsible for honest execution; echoing a challenge alone does not prove behavior. ACT does not establish release acceptance: run the separate pinned VERIFY gate afterward.
 
 Target receipts are bound to the canonical target directory. Copying identical source and a receipt into another repository fails `RECEIPT_TARGET_MISMATCH`. Relocation needs explicit re-review, not silent rebinding.
+
+## Post-write verification
+
+See the [M4 execution contract](AUTH_VERIFICATION_LANE.md) for automatic scoped lane results, legacy NOT_VERIFIED behavior, reviewed normal-build/CI integration, and the distinction between transaction completion and durable acceptance. Source receipts and historical release evidence retain their existing meaning.

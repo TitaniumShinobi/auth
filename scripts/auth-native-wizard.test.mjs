@@ -204,8 +204,19 @@ test('explicit migration records lineage and crash recovery never leaves a mixed
         const plan = await planNativeTarget(root, { sourceRoot: source, sourceRevision: base, productId: 'fixture', receiptPath: receipt });
         await applyNativePlan(plan, { sourceRoot: source, authorized: true });
         if (!point) {
-          const result = await migrateNativeTarget(root, receipt, { sourceRoot: source, targetRevision: target, newReceiptPath: nextReceipt, authorized: true });
-          assert.equal(result.state, 'COMPLETE'); assert.equal(result.from, base); assert.equal(result.to, target);
+          const { LANES } = await import('./auth-verification-lane.mjs');
+          const { createHash } = await import('node:crypto');
+          const prior = JSON.parse(await readFile(receipt, 'utf8'));
+          const postHash = createHash('sha256').update(await readFile(markerPath)).digest('hex');
+          const command = { argv: ['$NODE', '-e', "if(!require('fs').readFileSync('src/index.ts','utf8').includes('immutable upgrade fixture'))process.exit(1)"], timeoutMs: 2000, maxOutputBytes: 4096 };
+          const verificationSpec = { schema: 'life.auth.verification-lane/1', productId: 'fixture', revision: prior.receiptDigest, requestedOutcome: 'Verify migrated candidate bytes', evidenceScope: 'isolated', authorizedPaths: Object.keys(prior.files), inputs: [{ path: 'src/index.ts', sha256: postHash }], normalBuildGate: 'src/index.ts', normalBuild: command, lanes: LANES.map(id => ({ id, required: true, checks: ['signin/explicit_entry'], command })) };
+          const wrongSpec = structuredClone(verificationSpec); wrongSpec.inputs[0].sha256 = prior.files['src/index.ts'];
+          await assert.rejects(migrateNativeTarget(root, receipt, { sourceRoot: source, targetRevision: target, newReceiptPath: nextReceipt, authorized: true, verificationSpec: wrongSpec }), /LANE_INPUT_DRIFT/);
+          assert.equal((await verifyNativeReceipt(root, receipt)).verification, 'PASS'); await absent(nextReceipt);
+          const result = await migrateNativeTarget(root, receipt, { sourceRoot: source, targetRevision: target, newReceiptPath: nextReceipt, authorized: true, verificationSpec });
+          assert.ok(result.rptvl.lanes.every(lane => lane.result === 'PASS'));
+
+          assert.equal(result.state, 'COMPLETE'); assert.equal(result.rptvl.result,'NOT_VERIFIED'); assert.equal(result.durableCompletion,false); assert.equal(result.from, base); assert.equal(result.to, target);
           const next = JSON.parse(await readFile(nextReceipt, 'utf8')); assert.equal(next.priorReceiptDigest, JSON.parse(await readFile(receipt, 'utf8')).receiptDigest);
           assert.equal((await verifyNativeReceipt(root, nextReceipt)).verification, 'PASS');
         } else {
@@ -304,9 +315,11 @@ test('existing behavioral alignment wires the same product command into local te
     await writeFile(path.join(root,'package.json'),JSON.stringify({devDependencies:{typescript:'*'}}));
     await writeFile(path.join(root,'src/index.ts'),'// unchanged authentication source');
     await writeFile(path.join(root,'check.mjs'),"import fs from 'node:fs'; process.exit(fs.readFileSync('src/index.ts','utf8').includes('BROKEN')?1:0);");
-    const plan=await planNativeAlignment(root,{sourceRoot,receiptPath:path.join(root,'../'+path.basename(root)+'.receipt'),authenticationRole:'RELYING_PARTY',authenticationRuntime:'node',authenticationEntrypoint:'src/index.ts',behavioralTest:{argv:['$NODE','check.mjs'],timeoutMs:1000}});
+    const plan=await planNativeAlignment(root,{sourceRoot,receiptPath:path.join(root,'../'+path.basename(root)+'.receipt'),authenticationRole:'RELYING_PARTY',authenticationRuntime:'node',authenticationEntrypoint:'src/index.ts',behavioralTest:{argv:['$NODE','check.mjs'],timeoutMs:1000},dependencyTest:{argv:['$NODE','-e','process.exit(0)'],timeoutMs:1000}});
     const files=Object.fromEntries(plan.operations.map(op=>[op.path,Buffer.from(op.inlineBase64,'base64').toString()]));
     assert.match(files['.github/workflows/authentication-regression.yml'],/node test\/auth-behavior.mjs/);
+    assert.match(files['.github/workflows/authentication-regression.yml'],/node test\/auth-dependencies.mjs/);
+    assert.ok(files['test/auth-dependencies.mjs']);
     for(const [name,content] of Object.entries(files)){await mkdir(path.dirname(path.join(root,name)),{recursive:true});await writeFile(path.join(root,name),content);}
     const env={...process.env};delete env.NODE_TEST_CONTEXT;
     const runBehavior=()=>spawnSync(process.execPath,[path.join(root,'test/auth-behavior.mjs')],{env});
@@ -314,4 +327,29 @@ test('existing behavioral alignment wires the same product command into local te
     await writeFile(path.join(root,'unrelated.txt'),'ordinary development');assert.equal(runBehavior().status,0);
     await writeFile(path.join(root,'src/index.ts'),'BROKEN');assert.equal(runBehavior().status,1);
   } finally {await rm(root,{recursive:true,force:true});}
+});
+
+test('apply automatically executes reviewed lane and repeat repair rechecks without source changes', async () => {
+ const {LANES}=await import('./auth-verification-lane.mjs');const {createHash}=await import('node:crypto');
+ const root=await mkdtemp(path.join(os.tmpdir(),'auth-native-lane-'));const receipt=path.join(os.tmpdir(),`auth-lane-receipt-${Date.now()}.json`);
+ try {
+  const plan=await planNativeTarget(root,{sourceRoot,productId:'fixture-product',receiptPath:receipt});
+  const input=plan.operations.find(x=>x.path==='src/index.ts');
+  const command={argv:['$NODE','-e',"if(!require('fs').existsSync('src/index.ts'))process.exit(1)"],timeoutMs:2000,maxOutputBytes:4096};
+  const spec={schema:'life.auth.verification-lane/1',productId:plan.productId,revision:plan.planDigest,requestedOutcome:'Source fixture only',evidenceScope:'isolated',authorizedPaths:plan.operations.map(x=>x.path),inputs:[{path:input.path,sha256:input.postimageSha256}],normalBuildGate:input.path,normalBuild:command,lanes:LANES.map(id=>({id,required:true,checks:['signin/explicit_entry'],command}))};
+  const applied=await applyNativePlan(plan,{sourceRoot,authorized:true,verificationSpec:spec});assert.equal(applied.rptvl.result,'NOT_VERIFIED');assert.equal(applied.rptvl.normalBuild.reason,'NORMAL_BUILD_GATE_NOT_EXECUTED');
+  const receiptBytes=await readFile(receipt);const record=JSON.parse(receiptBytes);spec.revision=record.receiptDigest;
+  const again=await repairNativeTarget(root,receipt,{sourceRoot,authorized:true,verificationSpec:spec});assert.equal(again.state,'NO_CHANGES');assert.equal(again.rptvl.result,'NOT_VERIFIED');assert.equal(createHash('sha256').update(await readFile(receipt)).digest('hex'),createHash('sha256').update(receiptBytes).digest('hex'));
+  await writeFile(path.join(root, 'src/index.ts'), '// damaged source');
+  const wrongSpec = structuredClone(spec); wrongSpec.inputs[0].sha256 = '0'.repeat(64);
+  await assert.rejects(repairNativeTarget(root, receipt, { sourceRoot, authorized: true, verificationSpec: wrongSpec }), /LANE_INPUT_DRIFT/);
+  assert.equal(await readFile(path.join(root, 'src/index.ts'), 'utf8'), '// damaged source');
+  const repaired = await repairNativeTarget(root, receipt, { sourceRoot, authorized: true, verificationSpec: spec });
+  assert.equal(repaired.state, 'COMPLETE'); assert.deepEqual(repaired.repaired, ['src/index.ts']);
+  assert.ok(repaired.rptvl.lanes.every(lane => lane.result === 'PASS'));
+  assert.equal(repaired.rptvl.result, 'NOT_VERIFIED');
+  assert.equal(createHash('sha256').update(await readFile(path.join(root, 'src/index.ts'))).digest('hex'), input.postimageSha256);
+  assert.deepEqual(await readFile(receipt), receiptBytes);
+  const legacy=await repairNativeTarget(root,receipt,{sourceRoot,authorized:true});assert.equal(legacy.rptvl.result,'NOT_VERIFIED');assert.equal(legacy.durableCompletion,false);
+ } finally {await rm(root,{recursive:true,force:true});await rm(receipt,{force:true});}
 });

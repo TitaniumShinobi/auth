@@ -1,3 +1,4 @@
+import { runVerificationLane, validateLaneSpec, prepareVerificationLane } from './auth-verification-lane.mjs';
 /** Transient target-native AUTH wizard. It leaves product source and an optional receipt, never an AUTH control plane. */
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -181,7 +182,7 @@ function alignmentTestSource(role) {
   return `import test from 'node:test';\nimport assert from 'node:assert/strict';\nconst base=process.env.AUTH_BASE_URL;\ntest('authority metadata smoke only, not runtime acceptance',async()=>{assert.ok(base,'AUTH_BASE_URL is required');const health=await fetch(new URL('/health',base));assert.equal(health.ok,true);const metadata=await fetch(new URL('/.well-known/oauth-authorization-server',base));assert.equal(metadata.ok,true);const body=await metadata.json();assert.equal(new URL(body.issuer).origin,new URL(base).origin);assert.ok(body.code_challenge_methods_supported?.includes('S256'));});\n`;
 }
 
-function regressionWorkflow(existing = false, behavioral = false) {
+function regressionWorkflow(existing = false, behavioral = false, dependencies = false) {
   return `name: Authentication regression
 on: [push, pull_request, workflow_dispatch]
 permissions:
@@ -196,7 +197,7 @@ jobs:
           persist-credentials: false
       - name: Require supported Node
         run: node -e "if (Number(process.versions.node.split('.')[0]) < 20) process.exit(1)"
-${existing ? `      - name: Verify product authentication contracts
+${dependencies ? '      - name: Prepare reviewed product test dependencies\n        run: node test/auth-dependencies.mjs\n' : ''}${existing ? `      - name: Verify product authentication contracts
         run: ${behavioral ? 'node --test test/auth-entrypoint.test.mjs && node test/auth-behavior.mjs' : 'node --test test/auth-entrypoint.test.mjs test/auth-contract.test.mjs'}
 ` : `      - run: npm ci
       - run: npm test
@@ -222,7 +223,7 @@ test('authentication ownership and entrypoint remain established', async () => {
 `;
 }
 
-export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevision = 'HEAD', productId = 'product', receiptPath, authenticationRole, authenticationRuntime, authenticationEntrypoint, behavioralTest } = {}) {
+export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevision = 'HEAD', productId = 'product', receiptPath, authenticationRole, authenticationRuntime, authenticationEntrypoint, behavioralTest, dependencyTest } = {}) {
   if (!sourceRoot || !receiptPath) throw new Error('SOURCE_AND_RECEIPT_REQUIRED');
   if (!['IDENTITY_AUTHORITY','RELYING_PARTY'].includes(authenticationRole)) throw new Error('AUTHENTICATION_ROLE_REQUIRED');
   const assessment = await assessNativeTarget(targetRoot, { runtime: authenticationRuntime });
@@ -233,7 +234,8 @@ export async function planNativeAlignment(targetRoot, { sourceRoot, sourceRevisi
   if (!assessment.authEvidence.length) throw new Error('ALIGNMENT_REQUIRES_EXISTING_AUTH');
   if (assessment.prohibitedPersistentArtifacts.length) throw new Error('PERSISTENT_AUTH_ARTIFACT_MIGRATION_REQUIRED');
   const contract = { schema: 'life.auth.existing-contract/1', profile: assessment.stack.runtime === 'python' ? PYTHON_FLASK_SQLITE_PROFILE : NATIVE_PROFILE, authenticationRole, authenticationRuntime: assessment.stack.runtime, authenticationEntrypoint, productId, classification: assessment.classification, capabilities: assessment.capabilities.map(item => item.id), observations: assessment.capabilities, verification: 'PENDING_RUNTIME_EVIDENCE' };
-  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(behavioralTest ? `import './auth-behavior.mjs';\n` : alignmentTestSource(authenticationRole))], ['test/auth-entrypoint.test.mjs', Buffer.from(entrypointTestSource(contract))], ['.github/workflows/authentication-regression.yml', Buffer.from(regressionWorkflow(true, Boolean(behavioralTest)))]];
+  const generated = [['auth-standards.json', Buffer.from(json(contract))], ['test/auth-contract.test.mjs', Buffer.from(behavioralTest ? `import './auth-behavior.mjs';\n` : alignmentTestSource(authenticationRole))], ['test/auth-entrypoint.test.mjs', Buffer.from(entrypointTestSource(contract))], ['.github/workflows/authentication-regression.yml', Buffer.from(regressionWorkflow(true, Boolean(behavioralTest), Boolean(dependencyTest)))]];
+  if (dependencyTest) generated.push(['test/auth-dependencies.mjs', Buffer.from(productTestSource(dependencyTest))]);
   if (behavioralTest) generated.push(['test/auth-behavior.mjs', Buffer.from(productTestSource(behavioralTest))]);
   const operations = [];
   for (const [relative, bytes] of generated) {
@@ -332,7 +334,7 @@ async function bytesFor(plan, operation, sourceRoot) {
   throw new Error('PLAN_SOURCE_UNSUPPORTED');
 }
 
-export async function applyNativePlan(plan, { sourceRoot, authorized = false, dryRun = false } = {}) {
+async function applyNativePlanSource(plan, { sourceRoot, authorized = false, dryRun = false } = {}) {
   if (dryRun) return { operation: 'APPLY', state: 'DRY_RUN', planDigest: plan.planDigest, changed: [] };
   if (!authorized) throw new Error('EXPLICIT_AUTHORIZATION_REQUIRED');
   const root = await realpath(plan.targetRoot);
@@ -455,11 +457,13 @@ export async function verifyNativeReceipt(targetRoot, receiptPath) {
   return verifyNativeTarget(targetRoot, receipt);
 }
 
-export async function repairNativeTarget(targetRoot, receiptPath, { sourceRoot, authorized = false } = {}) {
+async function repairNativeTargetSource(targetRoot, receiptPath, { sourceRoot, authorized = false, verificationSpec } = {}) {
   if (!authorized) throw new Error('EXPLICIT_AUTHORIZATION_REQUIRED');
   const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
   if (receipt.profile !== NATIVE_PROFILE) throw new Error('REPAIR_VERSION_MISMATCH');
   const before = await verifyNativeReceipt(targetRoot, receiptPath);
+  const repairPaths = before.failures.filter(item => item.path).map(item => item.path);
+  await prepareVerificationLane({ root: targetRoot, spec: verificationSpec, binding: { productId: receipt.productId, revision: receipt.receiptDigest }, changedPaths: repairPaths, pendingInputs: repairPaths.map(relative => ({ path: relative, postimageSha256: receipt.files[relative] })) });
   if (before.verification === 'PASS') return { operation: 'REPAIR', state: 'NO_CHANGES', verification: before };
   if (before.failures.some(item => item.error === 'PERSISTENT_AUTH_FOOTPRINT')) throw new Error('REPAIR_REFUSES_ARCHITECTURE_MIGRATION');
   const root = await realpath(targetRoot);
@@ -508,7 +512,7 @@ export async function repairNativeTarget(targetRoot, receiptPath, { sourceRoot, 
   }
 }
 
-export async function migrateNativeTarget(targetRoot, receiptPath, { sourceRoot, targetRevision, newReceiptPath, authorized = false } = {}) {
+async function migrateNativeTargetSource(targetRoot, receiptPath, { sourceRoot, targetRevision, newReceiptPath, authorized = false, verificationSpec } = {}) {
   if (!authorized) throw new Error('EXPLICIT_AUTHORIZATION_REQUIRED');
   if (!targetRevision || !newReceiptPath) throw new Error('MIGRATION_TARGET_AND_RECEIPT_REQUIRED');
   const root = await realpath(targetRoot);
@@ -535,6 +539,7 @@ export async function migrateNativeTarget(targetRoot, receiptPath, { sourceRoot,
   if (schemaOperation && schemaOperation.targetDigest !== prior.files['prisma/schema.prisma']) throw new Error('IRREVERSIBLE_SCHEMA_MIGRATION_REQUIRES_OWNER');
   const changed = operations.filter(item => item.targetDigest !== prior.files[item.path]);
   if (!changed.length) throw new Error('MIGRATION_TARGET_HAS_NO_RUNTIME_CHANGE');
+  await prepareVerificationLane({ root, spec: verificationSpec, binding: { productId: prior.productId, revision: prior.receiptDigest }, changedPaths: changed.map(item => item.path), pendingInputs: changed.map(item => ({ path: item.path, postimageSha256: item.targetDigest })) });
   const newReceiptTarget = path.resolve(newReceiptPath);
   if (await exists(newReceiptTarget)) throw new Error('RECEIPT_DESTINATION_EXISTS');
   const tx = randomUUID(), prefix = `${TX_PREFIX}${tx}`, stage = path.join(root, `${prefix}-stage`), quarantine = path.join(root, `${prefix}-quarantine`), journalPath = path.join(root, `${prefix}.json`);
@@ -691,4 +696,32 @@ export async function recoverNativeTransactions(targetRoot) {
   }
   await rm(journalPath);
   return { operation: 'RECOVER', state: journal.state === 'COMPLETE' ? 'FINALIZED' : 'ROLLED_BACK', transactionId: id };
+}
+
+// Source transaction success is distinct from post-write behavioral acceptance.
+async function nativeLane(root, specification, binding, operation) {
+  const rptvl = await runVerificationLane({ root, spec: specification, binding,
+    changedPaths: operation.repaired || operation.changed || [] });
+  return { ...operation, rptvl, durableCompletion: rptvl.result === 'VERIFIED' };
+}
+export async function applyNativePlan(plan, options = {}) {
+  const binding = { productId: plan.productId, revision: plan.planDigest };
+  if (options.verificationSpec) { validateLaneSpec(options.verificationSpec, binding); if (plan.operations.some(x => !options.verificationSpec.authorizedPaths.includes(x.path))) throw new Error('LANE_SCOPE_DRIFT'); }
+  if (!options.dryRun) await prepareVerificationLane({ root: plan.targetRoot, spec: options.verificationSpec, binding, changedPaths: plan.operations.map(x => x.path), pendingInputs: plan.operations });
+  const result = await applyNativePlanSource(plan, options);
+  if (options.dryRun) return result;
+  return nativeLane(plan.targetRoot, options.verificationSpec, binding,
+    { ...result, changed: plan.operations.map(item => item.path) });
+}
+export async function repairNativeTarget(root, receiptPath, options = {}) {
+  const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+  const binding = { productId: receipt.productId, revision: receipt.receiptDigest };
+  if (options.verificationSpec) validateLaneSpec(options.verificationSpec, binding);
+  return nativeLane(root, options.verificationSpec, binding, await repairNativeTargetSource(root, receiptPath, options));
+}
+export async function migrateNativeTarget(root, receiptPath, options = {}) {
+  const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+  const binding = { productId: receipt.productId, revision: receipt.receiptDigest };
+  if (options.verificationSpec) validateLaneSpec(options.verificationSpec, binding);
+  return nativeLane(root, options.verificationSpec, binding, await migrateNativeTargetSource(root, receiptPath, options));
 }

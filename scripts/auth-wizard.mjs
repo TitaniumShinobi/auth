@@ -1,3 +1,4 @@
+import { verifiedLane } from './auth-verification-lane.mjs';
 import { randomUUID } from 'node:crypto';
 import { digest } from './auth-conformance-binding.mjs';
 import { applyVerificationProfile } from './auth-verification-profiles.mjs';
@@ -126,7 +127,7 @@ export async function executeRepair(adapter, { capabilityId, authorization, hand
     if (historical.regressions.length || historical.profile_regressions.length) report = { ...report, verification: 'FAIL', full_verification: 'FAIL', profile_verification: 'FAIL', regressions: [...report.regressions, ...historical.regressions], profile_regressions: historical.profile_regressions };
     report.assurance.historical_continuity = historical.assurance.historical_continuity;
   }
-  return { ...report, operator: 'ACT', verificationRequired: true, verifiedAfterAct: fresh,
+  return { ...report, operator: 'ACT', verificationRequired: true, verifiedAfterAct: fresh, rptvl: observed.rptvl?.result === 'VERIFIED' && !verifiedLane(observed.rptvl, { productId: context.productId, revision: context.revision, executionId: context.runId }) ? { result: 'NOT_VERIFIED', reason: 'EXECUTED_LANE_REQUIRED' } : observed.rptvl || { result: 'NOT_VERIFIED', reason: 'VERIFICATION_SPEC_REQUIRED' }, durableCompletion: fresh && !failure && verifiedLane(observed.rptvl, { productId: context.productId, revision: context.revision, executionId: context.runId }) && report.profile_verification === 'PASS',
     ...(!fresh ? { verification: report.verification === 'FAIL' ? 'FAIL' : 'INDETERMINATE', full_verification: report.full_verification === 'FAIL' ? 'FAIL' : 'INDETERMINATE', profile_verification: report.profile_verification === 'FAIL' ? 'FAIL' : 'INDETERMINATE', error: 'FRESH_POST_REPAIR_PROOF_REQUIRED' } : {}),
     ...(failure ? { verification: 'FAIL', full_verification: 'FAIL', profile_verification: 'FAIL', error: failure } : {}) };
 }

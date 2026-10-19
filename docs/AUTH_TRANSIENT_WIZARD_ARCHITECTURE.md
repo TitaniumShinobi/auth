@@ -45,3 +45,7 @@ Receipts use canonical JSON and contain no secret values. They bind tool/profile
 Power-loss durability is not claimed without file and directory `fsync` evidence. Irreversible identity or schema migration, provider registration, credentials, legal decisions, publication, and release remain owner-controlled.
 
 Implementation and command-specific documentation change in the same coherent phase and commit. A phase whose behavior and documentation disagree has failed.
+
+## Post-write verification
+
+See the [M4 execution contract](AUTH_VERIFICATION_LANE.md) for automatic scoped lane results, legacy NOT_VERIFIED behavior, reviewed normal-build/CI integration, and the distinction between transaction completion and durable acceptance. Source receipts and historical release evidence retain their existing meaning.

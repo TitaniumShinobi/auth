@@ -30,3 +30,19 @@ test('output overflow is bounded and rolls back',async t=>{const f=await fixture
 test('reviewed identity and check mapping cannot be widened',async t=>{const f=await fixture(t);f.spec.revision='other';await assert.rejects(createExistingRepair(f),/INVALID_REPAIR_SPEC/);f.spec.revision='reviewed';f.spec.checks.push('unreviewed');await assert.rejects(createExistingRepair(f),/INVALID_REPAIR_SPEC/);});
 test('index bytes and target permissions remain unchanged',async t=>{const f=await fixture(t);await fs.mkdir(path.join(f.root,'.git'));await fs.writeFile(path.join(f.root,'.git','index'),'staged bytes');await fs.chmod(path.join(f.root,'auth.txt'),0o640);const kit=await createExistingRepair(f);await act(f,kit);assert.equal(await fs.readFile(path.join(f.root,'.git','index'),'utf8'),'staged bytes');assert.equal((await fs.stat(path.join(f.root,'auth.txt'))).mode & 0o777,0o640);});
 test('successful observer command cannot hide changed repair bytes',async t=>{const f=await fixture(t,"import fs from 'node:fs'; if(fs.existsSync('ran'))fs.writeFileSync('auth.txt','external');else fs.writeFileSync('ran','1');"),kit=await createExistingRepair(f);await assert.rejects(act(f,kit),/ROLLBACK_SOURCE_DRIFT/);assert.equal(await fs.readFile(path.join(f.root,'auth.txt'),'utf8'),'external');assert.equal(kit.getResult().behavior.passed,false);});
+
+test('reviewed RPTVL runs after repair, binds candidate and reports scoped proof',async t=>{
+ const f=await fixture(t);const {LANES}=await import('./auth-verification-lane.mjs');
+ const {productTestSource}=await import('./auth-product-test.mjs');await fs.mkdir(path.join(f.root,'test'));await fs.writeFile(path.join(f.root,'test/auth-behavior.mjs'),productTestSource({argv:['$NODE','behavior.mjs'],timeoutMs:2000}));
+ const command={argv:[process.execPath,'test/auth-behavior.mjs'],timeoutMs:2000,maxOutputBytes:4096};
+ f.spec.verificationSpec={schema:'life.auth.verification-lane/1',productId:f.adapter.productId,revision:f.adapter.revision,requestedOutcome:'Restore callback behavior',evidenceScope:'isolated',authorizedPaths:[f.spec.file],inputs:[{path:f.spec.file,sha256:f.spec.afterSha256},...f.spec.evidenceFiles,{path:'test/auth-behavior.mjs',sha256:hash(await fs.readFile(path.join(f.root,'test/auth-behavior.mjs')))}],normalBuildGate:'test/auth-behavior.mjs',normalBuild:command,lanes:LANES.map(id=>({id,required:true,checks:[`${f.spec.capabilityId}/${f.spec.checks[0]}`],command}))};
+ const kit=await createExistingRepair(f);const report=await act(f,kit);
+ assert.equal(report.rptvl.result,'VERIFIED');assert.equal(report.rptvl.evidenceScope,'isolated');assert.equal(report.durableCompletion,false); // Unproven sibling requirements survive.
+ assert.equal(kit.getResult().rptvl.lanes.length,7);
+});
+test('failed verification lane rolls back only owned repair delta',async t=>{
+ const f=await fixture(t);const {LANES}=await import('./auth-verification-lane.mjs');
+ const command={argv:[process.execPath,'-e','process.exit(1)'],timeoutMs:2000,maxOutputBytes:4096};
+ f.spec.verificationSpec={schema:'life.auth.verification-lane/1',productId:f.adapter.productId,revision:f.adapter.revision,requestedOutcome:'Restore callback',evidenceScope:'isolated',authorizedPaths:[f.spec.file],inputs:f.spec.evidenceFiles,normalBuildGate:'behavior.mjs',normalBuild:command,lanes:LANES.map(id=>({id,required:true,checks:[`${f.spec.capabilityId}/${f.spec.checks[0]}`],command}))};
+ const kit=await createExistingRepair(f);const report=await act(f,kit);assert.equal(report.rptvl.result,'FAIL');assert.equal(await fs.readFile(path.join(f.root,'auth.txt'),'utf8'),'broken');assert.equal(await fs.readFile(path.join(f.root,'unrelated'),'utf8'),'untouched');assert.equal(kit.getResult().rolledBack,true);
+});

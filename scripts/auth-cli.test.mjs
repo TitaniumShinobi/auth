@@ -62,10 +62,12 @@ test('wizard ACT executes only a registered bounded handler and verifies fresh o
     assert.equal(blocked.status, 2);
     assert.equal(JSON.parse(blocked.stdout).blockerHandoffs[0].executionClassification, 'EXTERNAL_ACTION_REQUIRED');
     const result = run(['wizard', '--adapter', adapterPath, '--operator', 'ACT', '--capability', 'signin', '--repo', directory, '--act-module', modulePath, '--authorize']);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 2, result.stderr);
     const report = JSON.parse(result.stdout);
     assert.equal(report.verification, 'PASS');
     assert.equal(report.verifiedAfterAct, true);
+    assert.equal(report.rptvl.result, 'NOT_VERIFIED');
+    assert.equal(report.durableCompletion, false);
     assert.deepEqual(report.blockerHandoffs, []);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
@@ -174,4 +176,21 @@ test('reviewed spec digest mismatch fails before reading product or adapter', as
     const result=run(['wizard','--adapter','/missing','--operator','ACT','--repo','/missing','--capability','signin','--authorize','--repair-spec',spec,'--repair-sha256','0'.repeat(64)]);
     assert.equal(result.status,1); assert.match(result.stderr,/REVIEWED_SPEC_DIGEST_MISMATCH/);
   } finally {await rm(directory,{recursive:true,force:true});}
+});
+test('reviewed repair produces scoped lane evidence and successful CLI result without sibling fabrication', async () => {
+ const {createHash}=await import('node:crypto');const hash=x=>createHash('sha256').update(x).digest('hex');const {LANES}=await import('./auth-verification-lane.mjs');
+ const root=await mkdtemp(path.join(os.tmpdir(),'auth-cli-lane-'));
+ try {
+  const adapter={schemaVersion:1,productId:'fixture',revision:'r1',capabilities:Object.fromEntries(CAPABILITIES.map(c=>[c.id,{applicability:'FALSE',reason:'fixture scope'}]))};
+  const checks=CAPABILITIES.find(c=>c.id==='signin').checks;adapter.capabilities.signin={applicability:'TRUE',implementation:'ESTABLISHED',checks:Object.fromEntries(checks.map(x=>[x,false])),evidence:['fixture']};
+  const behavior="if(require('fs').readFileSync('source','utf8')!=='correct')process.exit(1)";
+  await writeFile(path.join(root,'source'),'broken');await writeFile(path.join(root,'behavior.cjs'),behavior);await writeFile(path.join(root,'adapter.json'),JSON.stringify(adapter));
+  const {productTestSource}=await import('./auth-product-test.mjs');const {mkdir}=await import('node:fs/promises');await mkdir(path.join(root,'test'));await writeFile(path.join(root,'test/auth-behavior.mjs'),productTestSource({argv:['$NODE','behavior.cjs'],timeoutMs:2000}));
+  const command={argv:[process.execPath,'test/auth-behavior.mjs'],timeoutMs:2000,maxOutputBytes:4096};
+  const spec={schemaVersion:1,productId:'fixture',revision:'r1',capabilityId:'signin',file:'source',beforeSha256:hash('broken'),afterSha256:hash('correct'),replacement:'correct',checks,evidenceFiles:[{path:'behavior.cjs',sha256:hash(behavior)}],command:{executable:process.execPath,args:['behavior.cjs'],timeoutMs:2000,maxOutputBytes:4096}};
+  spec.verificationSpec={schema:'life.auth.verification-lane/1',productId:'fixture',revision:'r1',evidenceScope:'isolated',requestedOutcome:'Synthetic contract success',authorizedPaths:['source'],inputs:[...spec.evidenceFiles,{path:'test/auth-behavior.mjs',sha256:hash(await (await import('node:fs/promises')).readFile(path.join(root,'test/auth-behavior.mjs')))}],normalBuildGate:'test/auth-behavior.mjs',normalBuild:command,lanes:LANES.map(id=>({id,required:true,checks:checks.map(x=>`signin/${x}`),command}))};
+  const bytes=JSON.stringify(spec);await writeFile(path.join(root,'repair.json'),bytes);
+  const result=run(['wizard','--operator','ACT','--authorize','--repo',root,'--adapter',path.join(root,'adapter.json'),'--capability','signin','--repair-spec',path.join(root,'repair.json'),'--repair-sha256',hash(bytes)]);
+  assert.equal(result.status,0,result.stderr);const report=JSON.parse(result.stdout);assert.equal(report.durableCompletion,true);assert.equal(report.rptvl.result,'VERIFIED');assert.equal(report.rptvl.evidenceScope,'isolated');
+ }finally{await rm(root,{recursive:true,force:true});}
 });

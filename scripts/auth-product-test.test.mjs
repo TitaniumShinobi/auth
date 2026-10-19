@@ -44,3 +44,10 @@ test('explicit executable environment requires configuration and does not print 
 test('malformed specs and unbounded execution rejected', () => {
   for (const spec of [{ argv: [], timeoutMs: 100 }, { argv: ['node'], timeoutMs: 0 }, { argv: ['node'], timeoutMs: 600001 }, { argv: ['node'], timeoutMs: 100, env: { PASSWORD: 'secret' } }]) assert.throws(() => validateProductTest(spec));
 });
+test('build integration planner rejects drift and prepares exact existing-handler replacement without writes',async t=>{
+ const {planProductBuildRepair}=await import('./auth-product-test.mjs');const {createHash}=await import('node:crypto');const {readFile}=await import('node:fs/promises');
+ const f=await fixture(t,['$NODE','-e','process.exit(0)']);const before=JSON.stringify({scripts:{test:'node original.mjs'}});await writeFile(path.join(f.root,'package.json'),before);
+ const request={file:'package.json',beforeSha256:createHash('sha256').update(before).digest('hex')};
+ const plan=await planProductBuildRepair(f.root,request,'test');assert.equal(await readFile(path.join(f.root,'package.json'),'utf8'),before);assert.equal(JSON.parse(plan.replacement).scripts.test,'npm run auth:original:test && node test/auth-behavior.mjs');assert.equal(JSON.parse(plan.replacement).scripts['auth:original:test'],'node original.mjs');
+ await assert.rejects(planProductBuildRepair(f.root,{...request,beforeSha256:'0'.repeat(64)},'test'),/SOURCE_DRIFT/);
+});

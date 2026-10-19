@@ -16,12 +16,13 @@ async function reviewedJson(filename, expected) {
 }
 const booleanFlags = new Set(['--authorize', '--dry-run', '--require-history', '--release']);
 const nativeFlags = {
+  'build-plan': ['--repo', '--repair-spec', '--repair-sha256', '--script', '--plan'],
   discover: ['--repo'], assess: ['--repo'],
   plan: ['--repo', '--product', '--receipt', '--plan', '--target-revision'],
-  'align-plan': ['--repo', '--product', '--receipt', '--plan', '--target-revision', '--auth-role', '--auth-runtime', '--auth-entrypoint', '--behavior-spec', '--behavior-sha256'],
-  apply: ['--repo', '--plan', '--authorize', '--dry-run'],
-  verify: ['--repo', '--receipt'], repair: ['--repo', '--receipt', '--authorize'],
-  migrate: ['--repo', '--receipt', '--target-revision', '--new-receipt', '--authorize'],
+  'align-plan': ['--repo', '--product', '--receipt', '--plan', '--target-revision', '--auth-role', '--auth-runtime', '--auth-entrypoint', '--behavior-spec', '--behavior-sha256', '--dependency-spec', '--dependency-sha256'],
+  apply: ['--repo', '--plan', '--authorize', '--dry-run', '--verification-spec', '--verification-sha256'],
+  verify: ['--repo', '--receipt'], repair: ['--repo', '--receipt', '--authorize', '--verification-spec', '--verification-sha256'],
+  migrate: ['--repo', '--receipt', '--target-revision', '--new-receipt', '--authorize', '--verification-spec', '--verification-sha256'],
   recover: ['--repo'],
 };
 const wizardFlags = ['--adapter', '--baseline', '--profile', '--operator', '--act-module', '--repair-spec', '--repair-sha256', '--repo', '--outcome', '--capability', '--authority-evidence', '--authority-sha256', '--authorize', '--release', '--runtime-evidence', '--runtime-digest', '--require-history', '--baseline-digest'];
@@ -53,6 +54,8 @@ function usage(code = 0) {
     '  auth wizard --adapter <json> [--baseline <json>] [--profile <profile>] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--repo <path>] [--outcome <text>] [--capability <id>] [--authority-evidence <json> --authority-sha256 <digest>] [--authorize] [--release --runtime-evidence <json> --runtime-digest <canonical-sha256>] [--require-history --baseline-digest <canonical-sha256>]',
     '  align-plan requires --auth-role <IDENTITY_AUTHORITY|RELYING_PARTY> --auth-entrypoint <relative-file>; mixed stacks also require --auth-runtime <node|python>.',
     'Existing repair: wizard --operator ACT --authorize --repair-spec <reviewed.json> --repair-sha256 <sha256> --repo <product> --adapter <observations.json> --capability <id>.',
+    'Native verification accepts --verification-spec <reviewed.json> --verification-sha256 <sha256>; missing proof is NOT_VERIFIED.',
+    'native build-plan --repo <product> --repair-spec <reviewed-template> --repair-sha256 <sha256> --script build|test --plan <output> prepares a single-file ACT specification.',
     'Behavioral alignment: native align-plan supports --behavior-spec <reviewed.json> --behavior-sha256 <sha256>.',
     'Flags are subcommand-specific. Unknown, duplicate, misplaced, or valueless flags fail before any operation.',
     'Native verification proves source integrity only. Release acceptance uses auth wizard --operator VERIFY --release.',
@@ -124,7 +127,7 @@ async function runWizard(args) {
       context.registeredCapabilities = [...registered.handlers.keys()];
       report.blockerHandoffs = createBlockerHandoffs(report, context);
       console.log(JSON.stringify(report, null, 2));
-      if (report.verification !== 'PASS') process.exitCode = 2;
+      if (report.verification !== 'PASS' || report.durableCompletion !== true) process.exitCode = 2;
       return;
     }
     if (args.authorize && args['act-module']) {
@@ -133,7 +136,7 @@ async function runWizard(args) {
       if (args.capability && registered.handlers.has(args.capability)) {
         const { executeRepair } = await import('./auth-wizard.mjs');
         const report = await executeRepair(adapter, { capabilityId: args.capability, authorization: { authorized: true, productId: adapter.productId, revision: adapter.revision, capabilityId: args.capability }, handlers: registered.handlers, observe: registered.observe, baseline, baselineDigest: args['baseline-digest'], requireHistory: args['require-history'] === true, trustedAuthorityEvidence, verificationProfile: args.profile });
-        report.blockerHandoffs = createBlockerHandoffs(report, context); console.log(JSON.stringify(report, null, 2)); if (report.verification !== 'PASS') process.exitCode = 2; return;
+        report.blockerHandoffs = createBlockerHandoffs(report, context); console.log(JSON.stringify(report, null, 2)); if (report.verification !== 'PASS' || report.durableCompletion !== true) process.exitCode = 2; return;
       }
     }
     const report = { operator: 'ACT', verification: 'INDETERMINATE', state: 'BLOCKED', error: args.authorize ? 'NO_SUPPORTED_REPAIR' : 'AUTHORIZATION_REQUIRED', changedFiles: [], capabilityId: args.capability || null, lifecycle_preservation: 'NOT_ASSESSED_USE_PRODUCT_VERIFY' };
@@ -154,17 +157,24 @@ async function runNative(argv) {
   if (!Object.hasOwn(nativeFlags, operation)) throw new Error('invalid native command');
   validateFlags(argv.slice(2), nativeFlags[operation], true);
   const rootValue = value(argv, '--repo');
-  if (!rootValue || !['discover', 'assess', 'plan', 'align-plan', 'apply', 'verify', 'repair', 'migrate', 'recover'].includes(operation)) throw new Error('invalid native command');
+  if (!rootValue || !['discover', 'assess', 'plan', 'build-plan', 'align-plan', 'apply', 'verify', 'repair', 'migrate', 'recover'].includes(operation)) throw new Error('invalid native command');
+  const verificationSpec = (value(argv, '--verification-spec') || value(argv, '--verification-sha256')) ? await reviewedJson(value(argv, '--verification-spec'), value(argv, '--verification-sha256')) : undefined;
   const native = await import('./auth-native-wizard.mjs'), root = path.resolve(rootValue), receipt = value(argv, '--receipt'), planPath = value(argv, '--plan'), productId = value(argv, '--product') || path.basename(root); let result;
-  if (operation === 'discover') result = await native.discoverNativeTarget(root);
+  if (operation === 'build-plan') {
+    const { planProductBuildRepair } = await import('./auth-product-test.mjs');
+    const request = await reviewedJson(value(argv, '--repair-spec'), value(argv, '--repair-sha256'));
+    result = await planProductBuildRepair(root, request, value(argv, '--script'));
+    if (planPath) await writeFile(path.resolve(planPath), `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' });
+  }
+  else if (operation === 'discover') result = await native.discoverNativeTarget(root);
   else if (operation === 'assess') result = await native.assessNativeTarget(root);
-  else if (operation === 'plan' || operation === 'align-plan') { result = operation === 'plan' ? await native.planNativeTarget(root, { sourceRoot: repoRoot, sourceRevision: value(argv, '--target-revision') || 'HEAD', productId, receiptPath: receipt }) : await native.planNativeAlignment(root, { sourceRoot: repoRoot, sourceRevision: value(argv, '--target-revision') || 'HEAD', productId, receiptPath: receipt, authenticationRole: value(argv, '--auth-role'), authenticationRuntime: value(argv, '--auth-runtime'), authenticationEntrypoint: value(argv, '--auth-entrypoint'), behavioralTest: (value(argv, '--behavior-spec') || value(argv, '--behavior-sha256')) ? await reviewedJson(value(argv, '--behavior-spec'), value(argv, '--behavior-sha256')) : undefined }); if (planPath) await writeFile(path.resolve(planPath), `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' }); }
-  else if (operation === 'apply') { if (!planPath) throw new Error('native apply requires --plan'); result = await native.applyNativePlan(await readJson(path.resolve(planPath)), { sourceRoot: repoRoot, authorized: argv.includes('--authorize'), dryRun: argv.includes('--dry-run') }); }
+  else if (operation === 'plan' || operation === 'align-plan') { result = operation === 'plan' ? await native.planNativeTarget(root, { sourceRoot: repoRoot, sourceRevision: value(argv, '--target-revision') || 'HEAD', productId, receiptPath: receipt }) : await native.planNativeAlignment(root, { sourceRoot: repoRoot, sourceRevision: value(argv, '--target-revision') || 'HEAD', productId, receiptPath: receipt, authenticationRole: value(argv, '--auth-role'), authenticationRuntime: value(argv, '--auth-runtime'), authenticationEntrypoint: value(argv, '--auth-entrypoint'), dependencyTest: (value(argv, '--dependency-spec') || value(argv, '--dependency-sha256')) ? await reviewedJson(value(argv, '--dependency-spec'), value(argv, '--dependency-sha256')) : undefined, behavioralTest: (value(argv, '--behavior-spec') || value(argv, '--behavior-sha256')) ? await reviewedJson(value(argv, '--behavior-spec'), value(argv, '--behavior-sha256')) : undefined }); if (planPath) await writeFile(path.resolve(planPath), `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' }); }
+  else if (operation === 'apply') { if (!planPath) throw new Error('native apply requires --plan'); result = await native.applyNativePlan(await readJson(path.resolve(planPath)), { sourceRoot: repoRoot, verificationSpec, authorized: argv.includes('--authorize'), dryRun: argv.includes('--dry-run') }); }
   else if (operation === 'verify') { if (!receipt) throw new Error('native verify requires --receipt'); result = await native.verifyNativeReceipt(root, path.resolve(receipt)); }
-  else if (operation === 'repair') { if (!receipt) throw new Error('native repair requires --receipt'); result = await native.repairNativeTarget(root, path.resolve(receipt), { sourceRoot: repoRoot, authorized: argv.includes('--authorize') }); }
-  else if (operation === 'migrate') { const targetRevision = value(argv, '--target-revision'), newReceipt = value(argv, '--new-receipt'); if (!receipt || !targetRevision || !newReceipt) throw new Error('native migrate requires --receipt --target-revision --new-receipt'); result = await native.migrateNativeTarget(root, path.resolve(receipt), { sourceRoot: repoRoot, targetRevision, newReceiptPath: path.resolve(newReceipt), authorized: argv.includes('--authorize') }); }
+  else if (operation === 'repair') { if (!receipt) throw new Error('native repair requires --receipt'); result = await native.repairNativeTarget(root, path.resolve(receipt), { sourceRoot: repoRoot, verificationSpec, authorized: argv.includes('--authorize') }); }
+  else if (operation === 'migrate') { const targetRevision = value(argv, '--target-revision'), newReceipt = value(argv, '--new-receipt'); if (!receipt || !targetRevision || !newReceipt) throw new Error('native migrate requires --receipt --target-revision --new-receipt'); result = await native.migrateNativeTarget(root, path.resolve(receipt), { sourceRoot: repoRoot, verificationSpec, targetRevision, newReceiptPath: path.resolve(newReceipt), authorized: argv.includes('--authorize') }); }
   else result = await native.recoverNativeTransactions(root);
-  console.log(JSON.stringify(result, null, 2)); if (result.verification === 'FAIL') process.exitCode = 2;
+  console.log(JSON.stringify(result, null, 2)); if (result.verification === 'FAIL' || (result.rptvl && result.rptvl.result !== 'VERIFIED')) process.exitCode = 2;
 }
 
 try {

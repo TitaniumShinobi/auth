@@ -1,3 +1,4 @@
+import { runVerificationLane, validateLaneSpec, prepareVerificationLane } from './auth-verification-lane.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -11,6 +12,7 @@ const sha = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 // Reviewed host code supplies this factory; manifests never acquire an ambient shell.
 export async function createExistingRepair({ root, spec, adapter }) {
   spec = structuredClone(spec); adapter = structuredClone(adapter);
+  if (spec.verificationSpec) validateLaneSpec(spec.verificationSpec, { productId: adapter.productId, revision: adapter.revision, requiredChecks: (spec.checks || []).map(x => `${spec.capabilityId}/${x}`) });
   const capability = CAPABILITIES.find(item => item.id === spec?.capabilityId);
   if (spec?.schemaVersion !== 1 || spec.productId !== adapter?.productId || spec.revision !== adapter?.revision ||
       !capability || !Array.isArray(spec.checks) || !spec.checks.length || new Set(spec.checks).size !== spec.checks.length ||
@@ -61,6 +63,7 @@ export async function createExistingRepair({ root, spec, adapter }) {
   const handler = async context => {
     if (context.productId !== spec.productId || context.revision !== spec.revision || context.capabilityId !== spec.capabilityId || !context.runId) fail('REPAIR_SCOPE_MISMATCH');
     await evidence();
+    await prepareVerificationLane({ root: base, spec: spec.verificationSpec, binding: { productId: spec.productId, revision: spec.revision, requiredChecks: spec.checks.map(x => `${spec.capabilityId}/${x}`) }, changedPaths: [spec.file], pendingInputs: [{ path: spec.file, postimageSha256: spec.afterSha256 }] });
     const target = await safeFile(spec.file), previous = await fs.readFile(target), currentHash = hash(previous);
     if (![spec.beforeSha256, spec.afterSha256].includes(currentHash)) fail('REPAIR_SOURCE_DRIFT');
     const mode = (await fs.stat(target)).mode;
@@ -96,12 +99,20 @@ export async function createExistingRepair({ root, spec, adapter }) {
     try { result = await run(); }
     catch (error) { if (rollback) { await rollback(); rollback = undefined; } throw error; }
     if (!result.passed && rollback) { await rollback(); rollback = undefined; receipt = { ...receipt, changedFiles: [], behavior: result, rolledBack: true }; }
-    const bytes = await fs.readFile(await safeFile(spec.file));
+    let bytes = await fs.readFile(await safeFile(spec.file));
     if (lastRunId === challenge.runId && !receipt?.rolledBack && hash(bytes) !== spec.afterSha256) {
       receipt = { ...receipt, behavior: { ...result, passed: false, reason: 'ROLLBACK_SOURCE_DRIFT' } };
       fail('ROLLBACK_SOURCE_DRIFT');
     }
+    let rptvl;
+    try { rptvl = await runVerificationLane({ root: base, spec: spec.verificationSpec, executionId: challenge.runId,
+      binding: { productId: spec.productId, revision: spec.revision, requiredChecks: spec.checks.map(x => `${spec.capabilityId}/${x}`) }, changedPaths: receipt?.changedFiles || [] }); }
+    catch (error) { rptvl = { result: 'FAIL', reason: error.message }; }
+    if (rptvl.result === 'FAIL' && rollback) { await rollback(); rollback = undefined; receipt = { ...receipt, changedFiles: [], rolledBack: true }; }
+    receipt = { ...receipt, rptvl, durableCompletion: rptvl.result === 'VERIFIED' };
+    bytes = await fs.readFile(await safeFile(spec.file));
     const observed = structuredClone(adapter);
+    observed.rptvl = rptvl;
     observed.revision = hash(bytes) === spec.afterSha256 ? revision(bytes) : adapter.revision;
     const entry = observed.capabilities[spec.capabilityId];
     if (!entry || entry.applicability !== 'TRUE') fail('REPAIR_APPLICABILITY_REQUIRED');
