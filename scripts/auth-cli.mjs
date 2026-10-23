@@ -15,6 +15,7 @@ async function reviewedJson(filename, expected) {
   return JSON.parse(bytes);
 }
 const booleanFlags = new Set(['--authorize', '--dry-run', '--require-history', '--release']);
+const completionFlags = ['--repo', '--objective', '--adapter', '--repair-spec', '--repair-sha256', '--verification-spec', '--verification-sha256', '--authorize'];
 const nativeFlags = {
   'build-plan': ['--repo', '--repair-spec', '--repair-sha256', '--script', '--plan'],
   discover: ['--repo'], assess: ['--repo'],
@@ -52,6 +53,7 @@ function usage(code = 0) {
     'Usage:',
     '  auth native <discover|assess|plan|align-plan|apply|verify|repair|migrate|recover> --repo <path> [--product <id>] [--receipt <path>] [--new-receipt <path>] [--plan <path>] [--target-revision <commit>] [--dry-run] [--authorize]',
     '  auth wizard --adapter <json> [--baseline <json>] [--profile <profile>] [--operator OBSERVE|ASSESS|DECIDE|VERIFY|ACT] [--act-module <registered.mjs>] [--repo <path>] [--outcome <text>] [--capability <id>] [--authority-evidence <json> --authority-sha256 <digest>] [--authorize] [--release --runtime-evidence <json> --runtime-digest <canonical-sha256>] [--require-history --baseline-digest <canonical-sha256>]',
+    '  auth complete --repo <path> --objective <text> [--adapter <json> --verification-spec <reviewed.json> --verification-sha256 <sha256> | --adapter <json> --repair-spec <reviewed.json> --repair-sha256 <sha256> --authorize]',
     '  align-plan requires --auth-role <IDENTITY_AUTHORITY|RELYING_PARTY> --auth-entrypoint <relative-file>; mixed stacks also require --auth-runtime <node|python>.',
     'Existing repair: wizard --operator ACT --authorize --repair-spec <reviewed.json> --repair-sha256 <sha256> --repo <product> --adapter <observations.json> --capability <id>.',
     'Native verification accepts --verification-spec <reviewed.json> --verification-sha256 <sha256>; missing proof is NOT_VERIFIED.',
@@ -63,6 +65,36 @@ function usage(code = 0) {
     'AUTH creates or aligns product-owned authentication and exits. Persistent AUTH runtimes, kits, adapters, daemons, copied packages, and source dependencies are prohibited.',
   ].join('\n');
   (code ? console.error : console.log)(output); process.exit(code);
+}
+
+async function runComplete(argv) {
+  validateFlags(argv.slice(1), completionFlags);
+  const root = value(argv, '--repo'), objective = value(argv, '--objective'), adapterPath = value(argv, '--adapter');
+  if (!root || !objective) throw new Error('COMPLETE_REQUIRES_REPO_OBJECTIVE');
+  const { completeAuthObjective, diagnosePlainLanguageObjective, verifyExistingAuthObjective } = await import('./auth-completion-harness.mjs');
+  const repairPath = value(argv, '--repair-spec'), verificationPath = value(argv, '--verification-spec');
+  if (repairPath && verificationPath) throw new Error('REPAIR_AND_READ_ONLY_VERIFICATION_ARE_EXCLUSIVE');
+  if (!adapterPath && !repairPath && !value(argv, '--repair-sha256') && !verificationPath && !value(argv, '--verification-sha256')) {
+    const result = await diagnosePlainLanguageObjective({ root, objective });
+    console.log(JSON.stringify(result, null, 2));
+    process.exitCode = 2;
+    return;
+  }
+  if (!adapterPath) throw new Error('PARTIAL_REVIEWED_COMPLETION_INPUTS');
+  if (verificationPath || value(argv, '--verification-sha256')) {
+    if (argv.includes('--authorize')) throw new Error('ACT_AUTHORIZATION_WITHOUT_REPAIR');
+    const verificationSpec = await reviewedJson(verificationPath, value(argv, '--verification-sha256'));
+    const adapter = await readJson(path.resolve(adapterPath));
+    const result = await verifyExistingAuthObjective({ root, objective, adapter, verificationSpec });
+    console.log(JSON.stringify(result, null, 2));
+    if (result.result !== 'VERIFIED') process.exitCode = 2;
+    return;
+  }
+  const repairSpec = await reviewedJson(repairPath, value(argv, '--repair-sha256'));
+  const adapter = await readJson(path.resolve(adapterPath));
+  const result = await completeAuthObjective({ root, objective, adapter, repairSpec, authorized: argv.includes('--authorize') });
+  console.log(JSON.stringify(result, null, 2));
+  if (result.result !== 'VERIFIED') process.exitCode = 2;
 }
 
 function parseFlags(argv) {
@@ -181,5 +213,6 @@ try {
   const argv = process.argv.slice(2); if (!argv.length || ['-h', '--help'].includes(argv[0])) usage(0); if (removed.has(argv[0])) throw new Error('LEGACY_PERSISTENT_AUTH_COMMAND_REMOVED_USE_NATIVE_WORKFLOW');
   if (argv[0] === 'native') await runNative(argv);
   else if (argv[0] === 'wizard') await runWizard(parseFlags(argv));
+  else if (argv[0] === 'complete') await runComplete(argv);
   else throw new Error('UNKNOWN_AUTH_COMMAND');
 } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
